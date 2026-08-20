@@ -1,0 +1,6 @@
+{
+  "name": "Gestor Centralizado de Redes Sociales - MINFIN",
+  "description": "Sistema institucional para la gestión y distribución centralizada de publicaciones oficiales y feeds embebidos en portales WordPress del Ministerio de Finanzas Públicas de Guatemala.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

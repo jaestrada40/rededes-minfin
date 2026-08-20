@@ -1,0 +1,366 @@
+import React, { useState } from 'react';
+import { useApp } from '../context/AppContext';
+import { WordPressIcon, SocialIcon } from './OfficialLogos';
+import { 
+  Globe, 
+  Search, 
+  Filter, 
+  CheckCircle2, 
+  RefreshCw, 
+  Copy, 
+  Check, 
+  Sliders, 
+  ExternalLink, 
+  Radio, 
+  Layers, 
+  ShieldCheck,
+  AlertTriangle,
+  Code,
+  Zap
+} from 'lucide-react';
+import { WordPressPortal } from '../types';
+
+interface PortalsViewProps {
+  onOpenBatchAssignModal: (feedId?: string) => void;
+}
+
+export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal }) => {
+  const { 
+    portals, 
+    feeds, 
+    settings, 
+    syncAllPortals, 
+    testPortalConnection, 
+    assignFeedToPortals,
+    user 
+  } = useApp();
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [selectedPortalIds, setSelectedPortalIds] = useState<string[]>([]);
+  const [testingPortalId, setTestingPortalId] = useState<string | null>(null);
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+  const [showAssignDropdownForPortal, setShowAssignDropdownForPortal] = useState<string | null>(null);
+
+  const canEdit = user.role === 'admin' || user.role === 'editor';
+
+  const filteredPortals = portals.filter(p => {
+    const matchesSearch = 
+      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.domain.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.description.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesCategory = categoryFilter === 'all' || p.category === categoryFilter;
+
+    return matchesSearch && matchesCategory;
+  });
+
+  const handleTestConnection = async (portalId: string) => {
+    setTestingPortalId(portalId);
+    await testPortalConnection(portalId);
+    setTestingPortalId(null);
+  };
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedPortalIds(filteredPortals.map(p => p.id));
+    } else {
+      setSelectedPortalIds([]);
+    }
+  };
+
+  const handleToggleSelectPortal = (id: string) => {
+    setSelectedPortalIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleCopyShortcode = (slug: string) => {
+    const code = `[${settings.shortcodeTag} feed="${slug}"]`;
+    navigator.clipboard.writeText(code);
+    setCopiedSlug(slug);
+    setTimeout(() => setCopiedSlug(null), 2000);
+  };
+
+  const toggleFeedInPortal = (portalId: string, feedId: string) => {
+    const feed = feeds.find(f => f.id === feedId);
+    if (!feed) return;
+
+    const newPortalIds = feed.assignedPortalIds.includes(portalId)
+      ? feed.assignedPortalIds.filter(id => id !== portalId)
+      : [...feed.assignedPortalIds, portalId];
+
+    assignFeedToPortals(feedId, newPortalIds);
+  };
+
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Top Header */}
+      <div className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-cyan-800 bg-cyan-50 px-2 py-0.5 rounded border border-cyan-200 flex items-center gap-1.5">
+              <WordPressIcon size={14} />
+              <span>Red Institucional de Portales WordPress</span>
+            </span>
+            <span className="text-xs text-slate-500 font-mono">
+              25 Dominios Gubernamentales
+            </span>
+          </div>
+
+          <h2 className="text-lg sm:text-xl font-bold text-[#003876] mt-1">
+            Distribución Centralizada y Sincronización en Portales
+          </h2>
+          <p className="text-xs text-slate-600 mt-0.5">
+            Asigne feeds a uno, varios o a los 25 portales del Ministerio. Cualquier cambio en las publicaciones se propaga automáticamente sin intervenir los sitios web individuales.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5 shrink-0">
+          <button
+            onClick={() => onOpenBatchAssignModal()}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#003876] hover:bg-[#002d5e] active:bg-[#002247] text-white text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer"
+          >
+            <Layers className="w-4 h-4" />
+            <span>Asignación Masiva a Portales</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Shortcode Documentation & Usage Guide Box */}
+      <div className="bg-[#002754] border border-white/10 rounded-xl p-4 sm:p-5 text-white shadow-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-[#001c3d] border border-white/10 text-emerald-300">
+              <Code className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white tracking-tight">
+                Integración de Shortcode en WordPress
+              </h3>
+              <p className="text-xs text-blue-100">
+                Inserte el shortcode en cualquier página, entrada o bloque Gutenberg de los portales autorizados.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-blue-200">Ejemplo común:</span>
+            <code className="text-xs font-mono bg-[#001c3d] text-emerald-300 px-3 py-1.5 rounded-lg border border-blue-900/60 select-all font-bold">
+              [{settings.shortcodeTag} feed="x-comunicados"]
+            </code>
+          </div>
+        </div>
+
+        {/* Available Feeds Shortcodes quick grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs">
+          {feeds.map((feed) => {
+            const shortcode = `[${settings.shortcodeTag} feed="${feed.slug}"]`;
+            const isCopied = copiedSlug === feed.slug;
+
+            return (
+              <div 
+                key={feed.id} 
+                className="bg-[#001c3d] border border-white/10 p-2.5 rounded-lg flex items-center justify-between gap-2"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <SocialIcon network={feed.network} size={14} />
+                  <span className="font-semibold text-slate-200 truncate">{feed.name}</span>
+                </div>
+                <button
+                  onClick={() => handleCopyShortcode(feed.slug)}
+                  className="px-2 py-1 bg-white/10 hover:bg-white/20 text-blue-100 rounded border border-white/10 text-[11px] font-mono flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+                >
+                  {isCopied ? <Check className="w-3 h-3 text-emerald-300" /> : <Copy className="w-3 h-3" />}
+                  <span>{isCopied ? 'Copiado' : 'Copiar'}</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Search and Filter */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          {/* Search */}
+          <div className="relative flex-1 sm:w-80">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar portal por nombre o dominio..."
+              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg py-2 pl-9 pr-3 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#003876] focus:bg-white"
+            />
+          </div>
+
+          {/* Category Filter */}
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-slate-700 focus:outline-none focus:border-[#003876] cursor-pointer"
+          >
+            <option value="all">Todas las Categorías</option>
+            <option value="Institucional">Institucional</option>
+            <option value="Transparencia">Transparencia</option>
+            <option value="Finanzas">Finanzas</option>
+            <option value="Sistemas">Sistemas</option>
+            <option value="Direcciones">Direcciones Técnicas</option>
+          </select>
+        </div>
+
+        <div className="text-xs text-slate-500 flex items-center gap-2">
+          <span>Mostrando <strong>{filteredPortals.length}</strong> de 25 portales</span>
+        </div>
+      </div>
+
+      {/* Portals Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead className="bg-[#003876] text-white uppercase text-[10px] tracking-wider">
+              <tr>
+                <th className="py-3 px-4 font-bold">Portal WordPress</th>
+                <th className="py-3 px-4 font-bold">Dominio Institucional</th>
+                <th className="py-3 px-4 font-bold">Estado Conexión</th>
+                <th className="py-3 px-4 font-bold">Feeds Asignados</th>
+                <th className="py-3 px-4 font-bold">Última Sincronización</th>
+                <th className="py-3 px-4 font-bold text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {filteredPortals.map((portal) => {
+                const assignedFeeds = feeds.filter(f => f.assignedPortalIds.includes(portal.id));
+                const isTesting = testingPortalId === portal.id;
+                const isDropdownOpen = showAssignDropdownForPortal === portal.id;
+
+                return (
+                  <tr key={portal.id} className="hover:bg-slate-50/80 transition-colors">
+                    {/* Name & Category */}
+                    <td className="py-3.5 px-4">
+                      <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                        <WordPressIcon size={14} className="text-[#21759b]" />
+                        <span>{portal.name}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        Categoría: <span className="font-semibold text-slate-700">{portal.category}</span> · WP {portal.wpVersion}
+                      </div>
+                    </td>
+
+                    {/* Domain */}
+                    <td className="py-3.5 px-4">
+                      <a
+                        href={`https://${portal.domain}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-blue-700 hover:underline flex items-center gap-1 text-[11px] font-semibold"
+                      >
+                        <span>{portal.domain}</span>
+                        <ExternalLink className="w-3 h-3 text-slate-400" />
+                      </a>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        IP: {portal.ipAddress}
+                      </div>
+                    </td>
+
+                    {/* Connection Status */}
+                    <td className="py-3.5 px-4">
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                        <span>Conectado (v2.4.1)</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Token REST API válido
+                      </div>
+                    </td>
+
+                    {/* Assigned Feeds */}
+                    <td className="py-3.5 px-4 relative">
+                      <div className="flex flex-wrap items-center gap-1 max-w-xs">
+                        {assignedFeeds.length === 0 ? (
+                          <span className="text-slate-400 text-[11px] italic">Sin feeds asignados</span>
+                        ) : (
+                          assignedFeeds.map(f => (
+                            <span 
+                              key={f.id}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200"
+                              title={f.name}
+                            >
+                              <SocialIcon network={f.network} size={10} />
+                              <span className="truncate max-w-[80px]">{f.slug}</span>
+                            </span>
+                          ))
+                        )}
+                      </div>
+
+                      {canEdit && (
+                        <div className="mt-1">
+                          <button
+                            onClick={() => setShowAssignDropdownForPortal(isDropdownOpen ? null : portal.id)}
+                            className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                          >
+                            {isDropdownOpen ? 'Cerrar asignación' : '+ Modificar feeds'}
+                          </button>
+
+                          {/* Quick Assign Dropdown */}
+                          {isDropdownOpen && (
+                            <div className="absolute left-4 top-12 w-64 bg-white border border-slate-300 rounded-xl shadow-xl p-3 z-50 text-xs">
+                              <div className="font-bold text-[#0c2340] border-b border-slate-100 pb-1.5 mb-2 flex items-center justify-between">
+                                <span>Feeds en este portal</span>
+                                <span className="text-[10px] text-slate-400">{assignedFeeds.length} activos</span>
+                              </div>
+                              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                                {feeds.map(feed => {
+                                  const isAssigned = feed.assignedPortalIds.includes(portal.id);
+                                  return (
+                                    <label
+                                      key={feed.id}
+                                      className="flex items-center gap-2 p-1 rounded hover:bg-slate-50 cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isAssigned}
+                                        onChange={() => toggleFeedInPortal(portal.id, feed.id)}
+                                        className="rounded text-blue-600"
+                                      />
+                                      <SocialIcon network={feed.network} size={12} />
+                                      <span className="text-[11px] text-slate-700 truncate">{feed.name}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Last Sync */}
+                    <td className="py-3.5 px-4 font-mono text-[11px] text-slate-600">
+                      <div>{portal.lastSyncAt}</div>
+                      <div className="text-[10px] text-emerald-600">Webhook OK</div>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="py-3.5 px-4 text-right">
+                      <button
+                        onClick={() => handleTestConnection(portal.id)}
+                        disabled={isTesting}
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded border border-slate-300 transition-colors cursor-pointer disabled:opacity-50 inline-flex items-center gap-1"
+                        title="Probar token y conexión REST API"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isTesting ? 'animate-spin text-blue-600' : ''}`} />
+                        <span>{isTesting ? 'Probando...' : 'Probar Ping'}</span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
