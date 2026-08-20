@@ -72,7 +72,7 @@ export class FeedsService {
     private readonly settings: SettingsService,
   ) {}
 
-  async create(dto: CreateFeedDto, actor: { email: string }): Promise<Feed> {
+  async create(dto: CreateFeedDto, actor: { id: string; email: string; role: string }): Promise<Feed> {
     const slug = dto.slug || slugify(dto.name) || `feed-${Date.now()}`;
     const feed = await this.prisma.feed.create({
       data: {
@@ -91,8 +91,9 @@ export class FeedsService {
     });
 
     await this.audit.log({
+      userId: actor.id,
       userEmail: actor.email,
-      userRole: 'desconocido',
+      userRole: actor.role,
       action: 'Creó nuevo feed institucional',
       module: 'Feeds',
       entity: 'Feed',
@@ -118,15 +119,16 @@ export class FeedsService {
     });
   }
 
-  async update(id: string, dto: UpdateFeedDto, actor: { email: string }): Promise<Feed> {
+  async update(id: string, dto: UpdateFeedDto, actor: { id: string; email: string; role: string }): Promise<Feed> {
     const feed = await this.prisma.feed.update({
       where: { id },
       data: { ...dto, updatedBy: actor.email },
     });
 
     await this.audit.log({
+      userId: actor.id,
       userEmail: actor.email,
-      userRole: 'desconocido',
+      userRole: actor.role,
       action: 'Actualizó configuración de feed',
       module: 'Feeds',
       entity: 'Feed',
@@ -137,7 +139,7 @@ export class FeedsService {
     return feed;
   }
 
-  async remove(id: string, actor: { email: string }): Promise<void> {
+  async remove(id: string, actor: { id: string; email: string; role: string }): Promise<void> {
     const feed = await this.prisma.feed.findUniqueOrThrow({ where: { id } }).catch(() => {
       throw new NotFoundException('Feed no encontrado');
     });
@@ -145,8 +147,9 @@ export class FeedsService {
     await this.prisma.feed.delete({ where: { id } });
 
     await this.audit.log({
+      userId: actor.id,
       userEmail: actor.email,
-      userRole: 'desconocido',
+      userRole: actor.role,
       action: 'Eliminó feed institucional',
       module: 'Feeds',
       entity: 'Feed',
@@ -156,7 +159,7 @@ export class FeedsService {
     });
   }
 
-  async duplicate(id: string, actor: { email: string }): Promise<Feed> {
+  async duplicate(id: string, actor: { id: string; email: string; role: string }): Promise<Feed> {
     const target = await this.prisma.feed.findUniqueOrThrow({ where: { id } });
     const copySlug = `${target.slug}-copia-${Math.floor(Math.random() * 1000)}`;
 
@@ -177,8 +180,9 @@ export class FeedsService {
     });
 
     await this.audit.log({
+      userId: actor.id,
       userEmail: actor.email,
-      userRole: 'desconocido',
+      userRole: actor.role,
       action: 'Duplicó feed existente',
       module: 'Feeds',
       entity: 'Feed',
@@ -193,7 +197,7 @@ export class FeedsService {
   async addPost(
     feedId: string,
     input: { urlOrId: string; network: string; customContent?: string },
-    actor: { email: string },
+    actor: { id: string; email: string; role: string },
   ) {
     const feed = await this.prisma.feed.findUniqueOrThrow({ where: { id: feedId } });
     const { postId, url } = extractPostIdAndDetails(input.urlOrId, input.network);
@@ -233,12 +237,13 @@ export class FeedsService {
       return { success: false, message: 'La publicación ya se encuentra registrada en este feed.' };
     }
 
-    const linkCount = await this.prisma.feedPost.count({ where: { feedId } });
-    await this.prisma.feedPost.create({ data: { feedId, postId: post.id, order: linkCount } });
+    await this.prisma.feedPost.updateMany({ where: { feedId }, data: { order: { increment: 1 } } });
+    await this.prisma.feedPost.create({ data: { feedId, postId: post.id, order: 0 } });
 
     await this.audit.log({
+      userId: actor.id,
       userEmail: actor.email,
-      userRole: 'desconocido',
+      userRole: actor.role,
       action: 'Agregó publicación a feed',
       module: 'Publicaciones',
       entity: 'Feed',
@@ -250,12 +255,13 @@ export class FeedsService {
     return { success: true, message: 'Publicación agregada con éxito.', post };
   }
 
-  async removePost(feedId: string, postId: string, actor: { email: string }): Promise<void> {
+  async removePost(feedId: string, postId: string, actor: { id: string; email: string; role: string }): Promise<void> {
     await this.prisma.feedPost.delete({ where: { feedId_postId: { feedId, postId } } });
 
     await this.audit.log({
+      userId: actor.id,
       userEmail: actor.email,
-      userRole: 'desconocido',
+      userRole: actor.role,
       action: 'Eliminó publicación del feed',
       module: 'Publicaciones',
       entity: 'Feed',
@@ -265,8 +271,12 @@ export class FeedsService {
     });
   }
 
-  async reorderPosts(feedId: string, orderedPostIds: string[], actor: { email: string }): Promise<void> {
-    await Promise.all(
+  async reorderPosts(
+    feedId: string,
+    orderedPostIds: string[],
+    actor: { id: string; email: string; role: string },
+  ): Promise<void> {
+    await this.prisma.$transaction(
       orderedPostIds.map((postId, index) =>
         this.prisma.feedPost.update({
           where: { feedId_postId: { feedId, postId } },
@@ -276,8 +286,9 @@ export class FeedsService {
     );
 
     await this.audit.log({
+      userId: actor.id,
       userEmail: actor.email,
-      userRole: 'desconocido',
+      userRole: actor.role,
       action: 'Reordenó publicaciones',
       module: 'Feeds',
       entity: 'Feed',
@@ -286,12 +297,13 @@ export class FeedsService {
     });
   }
 
-  async updatePostContent(postId: string, content: string, actor: { email: string }) {
+  async updatePostContent(postId: string, content: string, actor: { id: string; email: string; role: string }) {
     const post = await this.prisma.socialPost.update({ where: { id: postId }, data: { content } });
 
     await this.audit.log({
+      userId: actor.id,
       userEmail: actor.email,
-      userRole: 'desconocido',
+      userRole: actor.role,
       action: 'Editó contenido de publicación',
       module: 'Publicaciones',
       entity: 'SocialPost',

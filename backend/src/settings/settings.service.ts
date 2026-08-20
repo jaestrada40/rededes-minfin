@@ -15,15 +15,16 @@ export class SettingsService {
     return this.prisma.systemSettings.findUniqueOrThrow({ where: { id: 'default' } });
   }
 
-  async update(dto: UpdateSettingsDto, actor: { email: string }): Promise<SystemSettings> {
+  async update(dto: UpdateSettingsDto, actor: { id: string; email: string; role: string }): Promise<SystemSettings> {
     const settings = await this.prisma.systemSettings.update({
       where: { id: 'default' },
       data: dto as any,
     });
 
     await this.audit.log({
+      userId: actor.id,
       userEmail: actor.email,
-      userRole: 'desconocido',
+      userRole: actor.role,
       action: 'Actualizó configuración del sistema',
       module: 'Configuración',
       result: 'Exitoso',

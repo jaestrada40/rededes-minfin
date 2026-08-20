@@ -6,7 +6,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { PortalsService } from './portals.service';
 import { AssignPortalsDto } from './dto/assign-portals.dto';
 
-type AuthedRequest = Request & { user: { email: string } };
+type AuthedRequest = Request & { user: { id: string; email: string; role: string } };
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller()

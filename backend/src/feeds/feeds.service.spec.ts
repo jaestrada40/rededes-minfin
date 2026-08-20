@@ -35,6 +35,7 @@ describe('FeedsService', () => {
       create: jest.fn().mockResolvedValue({}),
       delete: jest.fn().mockResolvedValue({}),
       update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({}),
       count: jest.fn().mockResolvedValue(0),
     },
     socialPost: {
@@ -42,9 +43,10 @@ describe('FeedsService', () => {
       create: jest.fn().mockResolvedValue({ id: 'p1', network: 'x', postId: '123' }),
       update: jest.fn().mockResolvedValue({ id: 'p1', content: 'nuevo' }),
     },
+    $transaction: jest.fn((ops: any[]) => Promise.all(ops)),
   };
   const auditMock = { log: jest.fn() };
-  const actor = { email: 'a@minfin.gob.gt' };
+  const actor = { id: 'u1', email: 'a@minfin.gob.gt', role: 'admin' };
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
