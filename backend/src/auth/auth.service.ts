@@ -26,6 +26,25 @@ export class AuthService {
     return this.jwt.sign(payload, { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '5m' });
   }
 
+  // Format: <iv-hex>:<authTag-hex>:<ciphertext-hex>, AES-256-GCM with a random 12-byte IV per call.
+  private encryptSecret(plain: string): string {
+    const key = Buffer.from(process.env.MFA_ENCRYPTION_KEY!, 'hex');
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const ciphertext = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    return `${iv.toString('hex')}:${authTag.toString('hex')}:${ciphertext.toString('hex')}`;
+  }
+
+  private decryptSecret(encrypted: string): string {
+    const key = Buffer.from(process.env.MFA_ENCRYPTION_KEY!, 'hex');
+    const [ivHex, authTagHex, ciphertextHex] = encrypted.split(':');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    const plain = Buffer.concat([decipher.update(Buffer.from(ciphertextHex, 'hex')), decipher.final()]);
+    return plain.toString('utf8');
+  }
+
   decodeSetupSecret(token: string): string {
     const payload = this.jwt.verify(token, { secret: process.env.JWT_ACCESS_SECRET }) as { secret: string };
     return payload.secret;
@@ -40,6 +59,18 @@ export class AuthService {
         userEmail: email,
         userRole: 'desconocido',
         action: 'Intento de inicio de sesión',
+        module: 'Seguridad',
+        result: 'Fallido',
+      });
+      throw new UnauthorizedException('Credenciales inválidas');
+    }
+
+    if (!user.isActive) {
+      await this.audit.log({
+        userId: user.id,
+        userEmail: email,
+        userRole: 'desconocido',
+        action: 'Intento de inicio de sesión de usuario inactivo',
         module: 'Seguridad',
         result: 'Fallido',
       });
@@ -96,7 +127,7 @@ export class AuthService {
     }
 
     await this.prisma.mfaSettings.create({
-      data: { userId: payload.userId, secretEncrypted: payload.secret, verifiedAt: new Date() },
+      data: { userId: payload.userId, secretEncrypted: this.encryptSecret(payload.secret), verifiedAt: new Date() },
     });
     await this.prisma.user.update({ where: { id: payload.userId }, data: { mfaEnabled: true, lastLoginAt: new Date() } });
 
@@ -111,7 +142,7 @@ export class AuthService {
     if (payload.purpose !== 'mfa-challenge') throw new UnauthorizedException('Token inválido');
 
     const settings = await this.prisma.mfaSettings.findUnique({ where: { userId: payload.userId } });
-    const validCode = settings ? authenticator.check(code, settings.secretEncrypted) : false;
+    const validCode = settings ? authenticator.check(code, this.decryptSecret(settings.secretEncrypted)) : false;
 
     if (!validCode) {
       await this.audit.log({
@@ -132,6 +163,10 @@ export class AuthService {
 
   private async issueTokens(userId: string, ip?: string): Promise<TokenPair> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { role: true } });
+
+    if (!user.isActive) {
+      throw new UnauthorizedException('Credenciales inválidas');
+    }
 
     const accessToken = this.jwt.sign(
       { sub: user.id, email: user.email, role: user.role.name },
@@ -165,12 +200,39 @@ export class AuthService {
 
   async refresh(refreshToken: string, ip?: string): Promise<TokenPair> {
     const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-    const stored = await this.prisma.refreshToken.findFirst({
+
+    // Look up without filtering on revokedAt/expiresAt first, so we can distinguish
+    // "token not found at all" from "token found but already revoked" (reuse signal).
+    const existing = await this.prisma.refreshToken.findFirst({ where: { tokenHash } });
+
+    if (existing && existing.revokedAt) {
+      // Reuse of a previously-rotated token: likely theft/replay. Revoke the whole family.
+      await this.prisma.refreshToken.updateMany({
+        where: { userId: existing.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await this.audit.log({
+        userId: existing.userId,
+        userEmail: 'desconocido',
+        userRole: 'desconocido',
+        action: 'Reutilización de refresh token detectada; se revocaron todas las sesiones',
+        module: 'Seguridad',
+        result: 'Fallido',
+        ipAddress: ip,
+      });
+      throw new UnauthorizedException('Refresh token inválido o expirado');
+    }
+
+    // Atomically gate on validity and revoke in one operation to close the check-then-act race.
+    const result = await this.prisma.refreshToken.updateMany({
       where: { tokenHash, revokedAt: null, expiresAt: { gt: new Date() } },
+      data: { revokedAt: new Date() },
     });
+    if (result.count === 0) throw new UnauthorizedException('Refresh token inválido o expirado');
+
+    const stored = await this.prisma.refreshToken.findFirst({ where: { tokenHash } });
     if (!stored) throw new UnauthorizedException('Refresh token inválido o expirado');
 
-    await this.prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
     return this.issueTokens(stored.userId, ip);
   }
 
