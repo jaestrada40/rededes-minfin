@@ -7,6 +7,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { SettingsModule } from './settings/settings.module';
 import { FeedsModule } from './feeds/feeds.module';
+import { PortalsModule } from './portals/portals.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { FeedsModule } from './feeds/feeds.module';
     AuthModule,
     SettingsModule,
     FeedsModule,
+    PortalsModule,
   ],
 })
 export class AppModule {}
