@@ -6,6 +6,8 @@ import { AuditService } from '../audit/audit.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { User } from '@prisma/client';
 
+export type SafeUser = Omit<User, 'passwordHash'>;
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -14,7 +16,7 @@ export class UsersService {
     private readonly audit: AuditService,
   ) {}
 
-  async create(dto: CreateUserDto): Promise<User> {
+  async create(dto: CreateUserDto): Promise<SafeUser> {
     const role = await this.roles.findByName(dto.role);
     if (!role) throw new BadRequestException(`Rol inválido: ${dto.role}`);
 
@@ -27,6 +29,7 @@ export class UsersService {
         department: dto.department,
         roleId: role.id,
       },
+      omit: { passwordHash: true },
     });
 
     await this.audit.log({
@@ -46,21 +49,22 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { email } });
   }
 
-  findAll(): Promise<User[]> {
-    return this.prisma.user.findMany();
+  findAll(): Promise<SafeUser[]> {
+    return this.prisma.user.findMany({ omit: { passwordHash: true } });
   }
 
   async updateRole(
     userId: string,
     roleName: string,
     actor: { id: string; email: string; role: string },
-  ): Promise<User> {
+  ): Promise<SafeUser> {
     const role = await this.roles.findByName(roleName);
     if (!role) throw new BadRequestException(`Rol inválido: ${roleName}`);
 
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { roleId: role.id },
+      omit: { passwordHash: true },
     });
 
     await this.audit.log({
