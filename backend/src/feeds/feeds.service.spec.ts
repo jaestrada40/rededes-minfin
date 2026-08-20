@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { FeedsService } from './feeds.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 
 describe('FeedsService', () => {
   let service: FeedsService;
@@ -27,7 +28,20 @@ describe('FeedsService', () => {
       update: jest.fn().mockResolvedValue(feedRow),
       delete: jest.fn().mockResolvedValue(feedRow),
     },
-    feedPost: { findMany: jest.fn().mockResolvedValue([]), createMany: jest.fn() },
+    feedPost: {
+      findMany: jest.fn().mockResolvedValue([]),
+      createMany: jest.fn(),
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({}),
+      count: jest.fn().mockResolvedValue(0),
+    },
+    socialPost: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({ id: 'p1', network: 'x', postId: '123' }),
+      update: jest.fn().mockResolvedValue({ id: 'p1', content: 'nuevo' }),
+    },
   };
   const auditMock = { log: jest.fn() };
   const actor = { email: 'a@minfin.gob.gt' };
@@ -38,6 +52,7 @@ describe('FeedsService', () => {
         FeedsService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuditService, useValue: auditMock },
+        { provide: SettingsService, useValue: { get: jest.fn().mockResolvedValue({ officialAccounts: {} }) } },
       ],
     }).compile();
     service = moduleRef.get(FeedsService);
@@ -59,5 +74,20 @@ describe('FeedsService', () => {
     const feed = await service.duplicate('f1', actor);
     expect(feed).toBeDefined();
     expect(prismaMock.feed.create).toHaveBeenCalled();
+  });
+
+  it('adds a new post to a feed by extracting the ID from an X URL', async () => {
+    const result = await service.addPost(
+      'f1',
+      { urlOrId: 'https://x.com/MinfinGT/status/1234567890', network: 'x' },
+      actor,
+    );
+    expect(result.success).toBe(true);
+    expect(prismaMock.socialPost.create).toHaveBeenCalled();
+  });
+
+  it('reorders posts by writing the order column for each FeedPost row', async () => {
+    await service.reorderPosts('f1', ['p2', 'p1'], actor);
+    expect(prismaMock.feedPost.update).toHaveBeenCalledTimes(2);
   });
 });
