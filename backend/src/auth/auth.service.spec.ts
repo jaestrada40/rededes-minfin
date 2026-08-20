@@ -17,6 +17,7 @@ describe('AuthService', () => {
     passwordHash,
     name: 'Ana',
     mfaEnabled: false,
+    isActive: true,
     role: { name: 'editor' },
   };
 
@@ -28,11 +29,17 @@ describe('AuthService', () => {
       update: jest.fn().mockResolvedValue({}),
       findUniqueOrThrow: jest.fn().mockResolvedValue(userNoMfa),
     },
-    refreshToken: { create: jest.fn().mockResolvedValue({}), findFirst: jest.fn(), update: jest.fn() },
+    refreshToken: {
+      create: jest.fn().mockResolvedValue({}),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
 
   beforeEach(async () => {
     process.env.JWT_ACCESS_SECRET = 'test-secret';
+    process.env.MFA_ENCRYPTION_KEY = '0'.repeat(64);
     const moduleRef = await Test.createTestingModule({
       providers: [
         AuthService,
