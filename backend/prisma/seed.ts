@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
@@ -28,6 +29,17 @@ async function main() {
       name: 'Administrador DTI',
       roleId: adminRole.id,
       mfaEnabled: false,
+    },
+  });
+
+  await prisma.systemSettings.upsert({
+    where: { id: 'default' },
+    update: {},
+    create: {
+      id: 'default',
+      webhookSecret: crypto.randomBytes(32).toString('hex'),
+      allowedCorsDomains: [],
+      officialAccounts: {},
     },
   });
 

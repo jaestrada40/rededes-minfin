@@ -84,3 +84,92 @@ model AuditLog {
   result    String
   details   Json?
 }
+
+model SocialPost {
+  id            String   @id @default(uuid())
+  network       String
+  postId        String
+  url           String
+  authorHandle  String
+  authorName    String
+  publishedAt   String
+  content       String
+  mediaType     String
+  mediaUrl      String?
+  mediaThumb    String?
+  videoDuration String?
+  stats         Json?
+  isValidated   Boolean  @default(true)
+  addedAt       DateTime @default(now())
+  addedBy       String
+  feedLinks     FeedPost[]
+
+  @@unique([network, postId])
+}
+
+model Feed {
+  id                 String     @id @default(uuid())
+  slug               String     @unique
+  name               String
+  description        String
+  network            String
+  status             String     @default("active")
+  layoutDefault      String     @default("grid")
+  maxItemsDefault    Int        @default(6)
+  showMetrics        Boolean    @default(true)
+  showMedia          Boolean    @default(true)
+  autoRefreshMinutes Int        @default(5)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  updatedBy          String
+  posts              FeedPost[]
+  portals            FeedPortal[]
+}
+
+model FeedPost {
+  feedId String
+  postId String
+  order  Int
+  feed   Feed       @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  post   SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([feedId, postId])
+}
+
+model WordPressPortal {
+  id               String       @id @default(uuid())
+  name             String
+  domain           String       @unique
+  category         String
+  connectionStatus String       @default("connected")
+  ipAddress        String
+  wpVersion        String
+  pluginVersion    String
+  lastSyncAt       DateTime     @default(now())
+  tokenValid       Boolean      @default(true)
+  webhookEnabled   Boolean      @default(true)
+  description      String
+  feeds            FeedPortal[]
+}
+
+model FeedPortal {
+  feedId   String
+  portalId String
+  feed     Feed            @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  portal   WordPressPortal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+
+  @@id([feedId, portalId])
+}
+
+model SystemSettings {
+  id                      String   @id @default("default")
+  institutionName         String   @default("Ministerio de Finanzas Públicas")
+  shortcodeTag            String   @default("minfin_social_feed")
+  apiCacheDurationSeconds Int      @default(300)
+  webhookSecret           String
+  autoInvalidateCache     Boolean  @default(true)
+  allowedCorsDomains      String[]
+  officialAccounts        Json
+  contactSupportEmail     String   @default("soporte.dti@minfin.gob.gt")
+  maintenanceMode         Boolean  @default(false)
+}
