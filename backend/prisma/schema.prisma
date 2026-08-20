@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  department    String?
+  roleId        String
+  role          Role      @relation(fields: [roleId], references: [id])
+  mfaEnabled    Boolean   @default(false)
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  mfaSettings   MfaSettings?
+  refreshTokens RefreshToken[]
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  description String?
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  code        String           @unique
+  description String?
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+}
+
+model MfaSettings {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id])
+  secretEncrypted String
+  verifiedAt      DateTime?
+  backupCodesHash String[]
+  createdAt       DateTime  @default(now())
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  tokenHash  String
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  timestamp DateTime @default(now())
+  userId    String?
+  userEmail String
+  userRole  String
+  action    String
+  module    String
+  entity    String?
+  entityId  String?
+  ipAddress String?
+  result    String
+  details   Json?
+}
