@@ -15,9 +15,10 @@ describe('PortalsService', () => {
       deleteMany: jest.fn().mockResolvedValue({}),
       createMany: jest.fn().mockResolvedValue({}),
     },
+    $transaction: jest.fn((ops: any[]) => Promise.all(ops)),
   };
   const auditMock = { log: jest.fn() };
-  const actor = { email: 'a@minfin.gob.gt' };
+  const actor = { id: 'u1', email: 'a@minfin.gob.gt', role: 'admin' };
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({

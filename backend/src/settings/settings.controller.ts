@@ -13,13 +13,17 @@ export class SettingsController {
 
   @Roles('admin', 'editor', 'auditor', 'viewer')
   @Get()
-  get() {
-    return this.settings.get();
+  async get(@Req() req: Request & { user: { id: string; email: string; role: string } }) {
+    const settings = await this.settings.get();
+    if (req.user.role !== 'admin') {
+      return { ...settings, webhookSecret: undefined };
+    }
+    return settings;
   }
 
   @Roles('admin')
   @Patch()
-  update(@Body() dto: UpdateSettingsDto, @Req() req: Request & { user: { email: string } }) {
+  update(@Body() dto: UpdateSettingsDto, @Req() req: Request & { user: { id: string; email: string; role: string } }) {
     return this.settings.update(dto, req.user);
   }
 }
