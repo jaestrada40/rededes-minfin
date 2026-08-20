@@ -11,7 +11,9 @@ describe('Feeds and portals flow (e2e)', () => {
   let prisma: PrismaService;
   const email = 'e2e-feeds-admin@minfin.gob.gt';
   const password = 'Password123!';
+  const viewerEmail = 'e2e-feeds-viewer@minfin.gob.gt';
   let accessToken: string;
+  let viewerAccessToken: string;
   let portalId: string;
 
   beforeAll(async () => {
@@ -55,6 +57,36 @@ describe('Feeds and portals flow (e2e)', () => {
       .post('/auth/mfa/setup/verify')
       .send({ token: setupRes.body.verifyToken, code });
     accessToken = verifyRes.body.accessToken;
+
+    const viewerRole = await prisma.role.upsert({
+      where: { name: 'viewer' },
+      update: {},
+      create: { name: 'viewer' },
+    });
+    await prisma.user.upsert({
+      where: { email: viewerEmail },
+      update: {},
+      create: {
+        email: viewerEmail,
+        name: 'E2E Feeds Viewer',
+        passwordHash: await bcrypt.hash(password, 10),
+        roleId: viewerRole.id,
+      },
+    });
+    const viewerLoginRes = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: viewerEmail, password });
+    const viewerSetupRes = await request(app.getHttpServer())
+      .post('/auth/mfa/setup')
+      .send({ setupToken: viewerLoginRes.body.setupToken });
+    const viewerSecret = JSON.parse(
+      Buffer.from(viewerSetupRes.body.verifyToken.split('.')[1], 'base64').toString(),
+    ).secret;
+    const viewerCode = authenticator.generate(viewerSecret);
+    const viewerVerifyRes = await request(app.getHttpServer())
+      .post('/auth/mfa/setup/verify')
+      .send({ token: viewerSetupRes.body.verifyToken, code: viewerCode });
+    viewerAccessToken = viewerVerifyRes.body.accessToken;
   });
 
   afterAll(async () => {
@@ -62,6 +94,7 @@ describe('Feeds and portals flow (e2e)', () => {
     await prisma.refreshToken.deleteMany({});
     await prisma.mfaSettings.deleteMany({});
     await prisma.user.deleteMany({ where: { email } });
+    await prisma.user.deleteMany({ where: { email: viewerEmail } });
     await app.close();
   });
 
@@ -94,5 +127,24 @@ describe('Feeds and portals flow (e2e)', () => {
     expect(getRes.body.posts[0].post.postId).toBe('9988776655');
     expect(getRes.body.portals).toHaveLength(1);
     expect(getRes.body.portals[0].portal.id).toBe(portalId);
+  });
+
+  it('denies viewer role on admin/editor-only endpoints', async () => {
+    await request(app.getHttpServer())
+      .post('/feeds')
+      .set('Authorization', `Bearer ${viewerAccessToken}`)
+      .send({ name: 'Feed Viewer Denied', description: 'desc', network: 'x' })
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .patch('/settings')
+      .set('Authorization', `Bearer ${viewerAccessToken}`)
+      .send({ institutionName: 'Hacked' })
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .post('/portals/sync-all')
+      .set('Authorization', `Bearer ${viewerAccessToken}`)
+      .expect(403);
   });
 });
