@@ -125,7 +125,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCreateModal 
               Portales Conectados
             </div>
             <div className="text-2xl font-bold text-[#003876] mt-1">
-              {connectedPortals.length} / 25
+              {connectedPortals.length} / {portals.length}
             </div>
             <div className="text-[11px] text-emerald-600 font-medium flex items-center gap-1 mt-0.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />

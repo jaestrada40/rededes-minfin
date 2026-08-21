@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { SocialIcon, WordPressIcon, MinfinLogo } from './OfficialLogos';
 import { 
@@ -25,8 +25,77 @@ import {
 } from 'lucide-react';
 import { SocialPost } from '../types';
 
+declare global {
+  interface Window {
+    twttr?: {
+      widgets: { load: (el?: HTMLElement) => void };
+      events?: { bind: (name: string, cb: () => void) => void };
+    };
+  }
+}
+
+// El simulador debe verse idéntico al plugin de WordPress real: para X se usa
+// el mismo embed oficial (blockquote + widgets.js) en vez de una tarjeta
+// propia, así el preview no se desalinea de lo que en verdad renderiza X.
+const X_WIDGETS_SRC = 'https://platform.x.com/widgets.js';
+
+const XTweetEmbed: React.FC<{ url: string }> = ({ url }) => {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const load = () => window.twttr?.widgets.load(ref.current ?? undefined);
+
+    if (window.twttr) {
+      load();
+      return;
+    }
+    if (!document.querySelector(`script[src="${X_WIDGETS_SRC}"]`)) {
+      const script = document.createElement('script');
+      script.src = X_WIDGETS_SRC;
+      script.async = true;
+      script.onload = load;
+      document.body.appendChild(script);
+    } else {
+      const interval = setInterval(() => {
+        if (window.twttr) {
+          clearInterval(interval);
+          load();
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+  }, [url]);
+
+  return (
+    <div ref={ref} className="flex justify-center bg-white rounded-xl border border-slate-200/90 shadow-sm overflow-hidden p-2">
+      <blockquote className="twitter-tweet" data-lang="es" data-dnt="true">
+        <a href={url}></a>
+      </blockquote>
+    </div>
+  );
+};
+
+// Igual filosofía que XTweetEmbed: la Graph API de Facebook exige un Page
+// Access Token, pero el Post Embed oficial (plugins/post.php) funciona sin
+// credenciales para cualquier publicación pública.
+const FBPostEmbed: React.FC<{ url: string }> = ({ url }) => {
+  const embedUrl = `https://www.facebook.com/plugins/post.php?href=${encodeURIComponent(url)}&show_text=true&width=500`;
+  return (
+    <div className="flex justify-center bg-white rounded-xl border border-slate-200/90 shadow-sm overflow-hidden">
+      <iframe
+        src={embedUrl}
+        title="Publicación de Facebook"
+        loading="lazy"
+        style={{ border: 'none', overflow: 'hidden', width: '100%', maxWidth: 500, height: 680 }}
+        scrolling="no"
+        allow="encrypted-media"
+      />
+    </div>
+  );
+};
+
 export const FeedPublicPreview: React.FC = () => {
-  const { feeds, posts, portals, selectedFeedId, setSelectedFeedId, settings } = useApp();
+  const { feeds, posts, portals, selectedFeedId, setSelectedFeedId, settings, updateFeed, showNotification } = useApp();
 
   const currentFeed = feeds.find(f => f.id === selectedFeedId) || feeds[0];
 
@@ -37,9 +106,46 @@ export const FeedPublicPreview: React.FC = () => {
   const [showMetrics, setShowMetrics] = useState<boolean>(currentFeed?.showMetrics !== undefined ? currentFeed.showMetrics : true);
   const [showMedia, setShowMedia] = useState<boolean>(currentFeed?.showMedia !== undefined ? currentFeed.showMedia : true);
   const [showSeeMoreBtn, setShowSeeMoreBtn] = useState<boolean>(true);
-  const [selectedPortalContext, setSelectedPortalContext] = useState<string>('wp-01');
+  const [selectedPortalContext, setSelectedPortalContext] = useState<string>('');
   const [carouselIndex, setCarouselIndex] = useState<number>(0);
   const [copiedShortcode, setCopiedShortcode] = useState<boolean>(false);
+  const [savingDefault, setSavingDefault] = useState<boolean>(false);
+
+  // Al cambiar de feed en el selector, los controles deben reflejar la
+  // configuración real de ESE feed, no arrastrar lo que se estaba probando
+  // en el feed anterior.
+  useEffect(() => {
+    if (!currentFeed) return;
+    setLayout(currentFeed.layoutDefault);
+    setItemsLimit(currentFeed.maxItemsDefault);
+    setShowMetrics(currentFeed.showMetrics);
+    setShowMedia(currentFeed.showMedia);
+    setCustomTitle(`Publicaciones Oficiales · ${currentFeed.name}`);
+  }, [currentFeed?.id]);
+
+  const isDirty =
+    !!currentFeed &&
+    (layout !== currentFeed.layoutDefault ||
+      itemsLimit !== currentFeed.maxItemsDefault ||
+      showMetrics !== currentFeed.showMetrics ||
+      showMedia !== currentFeed.showMedia);
+
+  const handleSaveAsDefault = async () => {
+    if (!currentFeed) return;
+    setSavingDefault(true);
+    try {
+      await updateFeed(currentFeed.id, {
+        layoutDefault: layout,
+        maxItemsDefault: itemsLimit,
+        showMetrics,
+        showMedia
+      });
+    } catch (err) {
+      showNotification(err instanceof Error ? err.message : 'No se pudo guardar la configuración del feed.', 'error');
+    } finally {
+      setSavingDefault(false);
+    }
+  };
 
   // Get posts for this feed
   const feedPosts = (currentFeed?.postIds || [])
@@ -73,7 +179,13 @@ export const FeedPublicPreview: React.FC = () => {
   // Render individual Social Card adhering to authentic brand styling
   const renderSocialCard = (post: SocialPost) => {
     const isX = post.network === 'x';
+    if (isX) {
+      return <XTweetEmbed key={post.id} url={post.url} />;
+    }
     const isFB = post.network === 'facebook';
+    if (isFB) {
+      return <FBPostEmbed key={post.id} url={post.url} />;
+    }
     const isIG = post.network === 'instagram';
     const isYT = post.network === 'youtube';
     const isLI = post.network === 'linkedin';
@@ -89,9 +201,9 @@ export const FeedPublicPreview: React.FC = () => {
             {/* Avatar */}
             <div className="relative shrink-0">
               <div className={`w-9 h-9 rounded-full overflow-hidden border ${isIG ? 'p-[2px] bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600' : 'bg-slate-100 border-slate-200'}`}>
-                {settings.officialAccounts[post.network]?.avatarUrl ? (
+                {post.authorAvatarUrl || settings.officialAccounts[post.network]?.avatarUrl ? (
                   <img
-                    src={settings.officialAccounts[post.network].avatarUrl}
+                    src={post.authorAvatarUrl || settings.officialAccounts[post.network].avatarUrl}
                     alt={post.authorName}
                     className="w-full h-full object-cover rounded-full"
                     referrerPolicy="no-referrer"
@@ -132,7 +244,17 @@ export const FeedPublicPreview: React.FC = () => {
         </div>
 
         {/* Card Media if enabled */}
-        {showMedia && (post.mediaUrl || post.mediaThumb) && (
+        {showMedia && isYT ? (
+          <div className="relative border-y border-slate-100 bg-slate-950 overflow-hidden aspect-video">
+            <iframe
+              src={`https://www.youtube.com/embed/${post.postId}`}
+              title={post.content || 'Video de YouTube'}
+              className="w-full h-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          </div>
+        ) : showMedia && (post.mediaUrl || post.mediaThumb) && (
           <div className="relative border-y border-slate-100 bg-slate-950 overflow-hidden h-60 sm:h-72">
             <img
               src={post.mediaUrl || post.mediaThumb}
@@ -140,18 +262,6 @@ export const FeedPublicPreview: React.FC = () => {
               className="w-full h-full object-contain"
               referrerPolicy="no-referrer"
             />
-            {isYT && (
-              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                <div className="w-12 h-12 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg transition-transform hover:scale-110">
-                  <Play className="w-6 h-6 fill-white ml-0.5" />
-                </div>
-                {post.videoDuration && (
-                  <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-black/80 text-white text-[10px] font-mono font-bold">
-                    {post.videoDuration}
-                  </span>
-                )}
-              </div>
-            )}
           </div>
         )}
 
@@ -237,9 +347,25 @@ export const FeedPublicPreview: React.FC = () => {
 
       {/* Control Panel for Layout Customization */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-4">
-        <div className="flex items-center gap-2 font-bold text-xs uppercase text-[#003876] border-b border-slate-100 pb-2">
-          <Settings2 className="w-4 h-4 text-[#003876]" />
-          <span>Configuración Visual del Shortcode Embebido</span>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+          <div className="flex items-center gap-2 font-bold text-xs uppercase text-[#003876]">
+            <Settings2 className="w-4 h-4 text-[#003876]" />
+            <span>Configuración Visual del Shortcode Embebido</span>
+          </div>
+          {isDirty && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-amber-700 font-semibold">Cambios sin guardar</span>
+              <button
+                type="button"
+                onClick={handleSaveAsDefault}
+                disabled={savingDefault}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>{savingDefault ? 'Guardando...' : 'Guardar como predeterminado del feed'}</span>
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
@@ -372,13 +498,13 @@ export const FeedPublicPreview: React.FC = () => {
               <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
             </div>
             <span className="text-[11px] font-mono text-slate-200 bg-[#002754] px-3 py-0.5 rounded border border-blue-900/60">
-              https://{portalContext.domain}/seccion-comunicados/
+              https://{portalContext?.domain || 'portal.minfin.gob.gt'}/seccion-comunicados/
             </span>
           </div>
 
           <div className="flex items-center gap-2 text-xs text-blue-100">
             <WordPressIcon size={14} />
-            <span>{portalContext.name}</span>
+            <span>{portalContext?.name || 'Portal MINFIN'}</span>
           </div>
         </div>
 

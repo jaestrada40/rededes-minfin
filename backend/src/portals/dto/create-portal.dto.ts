@@ -5,9 +5,6 @@ export class CreatePortalDto {
   @IsString() domain: string;
   @IsIn(['Institucional', 'Transparencia', 'Finanzas', 'Sistemas', 'Direcciones'])
   category: string;
-  @IsString() ipAddress: string;
-  @IsString() wpVersion: string;
-  @IsString() pluginVersion: string;
   @IsString() description: string;
   @IsOptional() @IsBoolean() webhookEnabled?: boolean;
 }

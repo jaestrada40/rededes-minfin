@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { SocialIcon, WordPressIcon } from './OfficialLogos';
+import { SocialIcon, WordPressIcon, networkLabel } from './OfficialLogos';
 import { X, Plus, Save, Layers, Globe, CheckCircle2, AlertCircle } from 'lucide-react';
 import { SocialNetworkType, FeedStatus, Feed } from '../types';
 
@@ -11,7 +11,7 @@ interface CreateFeedModalProps {
 }
 
 export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClose, editFeedId }) => {
-  const { feeds, portals, createFeed, updateFeed, settings, showNotification } = useApp();
+  const { feeds, portals, createFeed, updateFeed, settings, showNotification, requestConfirm } = useApp();
 
   const editFeed = editFeedId ? feeds.find(f => f.id === editFeedId) : null;
 
@@ -20,7 +20,7 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
   const [description, setDescription] = useState('');
   const [network, setNetwork] = useState<SocialNetworkType | 'mixed'>('x');
   const [status, setStatus] = useState<FeedStatus>('active');
-  const [assignedPortalIds, setAssignedPortalIds] = useState<string[]>(['wp-01', 'wp-02', 'wp-03']);
+  const [assignedPortalIds, setAssignedPortalIds] = useState<string[]>([]);
   const [layoutDefault, setLayoutDefault] = useState<'grid' | 'list' | 'carousel' | 'single'>('grid');
   const [maxItemsDefault, setMaxItemsDefault] = useState<number>(6);
   const [showMetrics, setShowMetrics] = useState<boolean>(true);
@@ -46,7 +46,7 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
       setDescription('');
       setNetwork('x');
       setStatus('active');
-      setAssignedPortalIds(['wp-01', 'wp-02', 'wp-03', 'wp-04', 'wp-06']);
+      setAssignedPortalIds([]);
       setLayoutDefault('grid');
       setMaxItemsDefault(6);
       setShowMetrics(true);
@@ -82,7 +82,9 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!name.trim()) {
@@ -95,35 +97,52 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
       return;
     }
 
-    if (editFeed) {
-      updateFeed(editFeed.id, {
-        name,
-        slug,
-        description,
-        network,
-        status,
-        assignedPortalIds,
-        layoutDefault,
-        maxItemsDefault,
-        showMetrics,
-        showMedia
-      });
-    } else {
-      createFeed({
-        name,
-        slug,
-        description,
-        network,
-        status,
-        assignedPortalIds,
-        layoutDefault,
-        maxItemsDefault,
-        showMetrics,
-        showMedia
-      });
+    if (!editFeed && network !== 'mixed') {
+      const duplicate = feeds.find(f => f.network === network);
+      if (duplicate) {
+        const confirmed = await requestConfirm(
+          `Ya existe el feed "${duplicate.name}" para ${networkLabel(network)}. ¿Seguro que quiere crear otro feed para la misma red?`,
+          { title: 'Feed duplicado para esta red', confirmLabel: 'Crear de todos modos' }
+        );
+        if (!confirmed) return;
+      }
     }
 
-    onClose();
+    setSubmitting(true);
+    try {
+      if (editFeed) {
+        await updateFeed(editFeed.id, {
+          name,
+          slug,
+          description,
+          network,
+          status,
+          assignedPortalIds,
+          layoutDefault,
+          maxItemsDefault,
+          showMetrics,
+          showMedia
+        });
+      } else {
+        await createFeed({
+          name,
+          slug,
+          description,
+          network,
+          status,
+          assignedPortalIds,
+          layoutDefault,
+          maxItemsDefault,
+          showMetrics,
+          showMedia
+        });
+      }
+      onClose();
+    } catch (err) {
+      showNotification(err instanceof Error ? err.message : 'No se pudo guardar el feed.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -298,10 +317,11 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
             </button>
             <button
               type="submit"
-              className="flex items-center gap-1.5 px-5 py-2 bg-[#003876] hover:bg-[#002d5e] active:bg-[#002247] text-white rounded-lg font-bold shadow transition-colors cursor-pointer"
+              disabled={submitting}
+              className="flex items-center gap-1.5 px-5 py-2 bg-[#003876] hover:bg-[#002d5e] active:bg-[#002247] text-white rounded-lg font-bold shadow transition-colors cursor-pointer disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
-              <span>{editFeed ? 'Guardar Cambios' : 'Crear Feed'}</span>
+              <span>{submitting ? 'Guardando...' : editFeed ? 'Guardar Cambios' : 'Crear Feed'}</span>
             </button>
           </div>
         </form>

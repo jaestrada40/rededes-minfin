@@ -25,6 +25,7 @@ export interface BackendSocialPost {
   url: string;
   authorHandle: string;
   authorName: string;
+  authorAvatarUrl?: string | null;
   publishedAt: string;
   content: string;
   mediaType: string;
@@ -43,9 +44,6 @@ export interface BackendWordPressPortal {
   domain: string;
   category: string;
   connectionStatus: string;
-  ipAddress: string;
-  wpVersion: string;
-  pluginVersion: string;
   lastSyncAt: string;
   tokenValid: boolean;
   webhookEnabled: boolean;

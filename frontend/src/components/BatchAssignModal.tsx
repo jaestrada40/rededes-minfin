@@ -15,6 +15,7 @@ export const BatchAssignModal: React.FC<BatchAssignModalProps> = ({ isOpen, onCl
   const [selectedFeedId, setSelectedFeedId] = useState<string>(initialFeedId || feeds[0]?.id || '');
   const [selectedPortalIds, setSelectedPortalIds] = useState<string[]>([]);
   const [showConfirmStep, setShowConfirmStep] = useState<boolean>(false);
+  const [applying, setApplying] = useState(false);
 
   const currentFeed = feeds.find(f => f.id === selectedFeedId) || feeds[0];
 
@@ -46,10 +47,17 @@ export const BatchAssignModal: React.FC<BatchAssignModalProps> = ({ isOpen, onCl
     }
   };
 
-  const handleApplyChanges = () => {
-    assignFeedToPortals(currentFeed.id, selectedPortalIds);
-    setShowConfirmStep(false);
-    onClose();
+  const handleApplyChanges = async () => {
+    setApplying(true);
+    try {
+      await assignFeedToPortals(currentFeed.id, selectedPortalIds);
+      setShowConfirmStep(false);
+      onClose();
+    } catch (err) {
+      showNotification(err instanceof Error ? err.message : 'No se pudo guardar la asignación de portales.', 'error');
+    } finally {
+      setApplying(false);
+    }
   };
 
   return (
@@ -143,7 +151,7 @@ export const BatchAssignModal: React.FC<BatchAssignModalProps> = ({ isOpen, onCl
 
             {/* Info notice */}
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 text-[11px]">
-              Al guardar, se enviará una señal a los portales seleccionados para invalidar la caché y mostrar el nuevo feed en los bloques con shortcode <code>[{currentFeed?.slug}]</code>.
+              Al guardar, los portales seleccionados podrán mostrar este feed en los bloques con shortcode <code>[{currentFeed?.slug}]</code>. Cada portal cachea el contenido hasta 5 minutos, así que el cambio puede tardar en reflejarse.
             </div>
 
             {/* Actions */}
@@ -192,8 +200,8 @@ export const BatchAssignModal: React.FC<BatchAssignModalProps> = ({ isOpen, onCl
                 <strong className="text-[#003876]">{selectedPortalIds.length} portales</strong>
               </div>
               <div className="flex justify-between text-slate-700">
-                <span>Protocolo de sincronización:</span>
-                <span className="font-mono text-emerald-700">REST API Webhook + Transient Clear</span>
+                <span>Actualización en portales:</span>
+                <span className="font-mono text-amber-700">Hasta 5 min (caché de WordPress)</span>
               </div>
             </div>
 
@@ -208,9 +216,10 @@ export const BatchAssignModal: React.FC<BatchAssignModalProps> = ({ isOpen, onCl
               <button
                 type="button"
                 onClick={handleApplyChanges}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow cursor-pointer"
+                disabled={applying}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow cursor-pointer disabled:opacity-50"
               >
-                Confirmar y Aplicar Cambios
+                {applying ? 'Guardando...' : 'Confirmar y Aplicar Cambios'}
               </button>
             </div>
           </div>

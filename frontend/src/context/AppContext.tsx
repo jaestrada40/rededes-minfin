@@ -75,6 +75,7 @@ interface AppContextType {
   syncAllPortals: () => Promise<void>;
   testPortalConnection: (portalId: string) => Promise<boolean>;
   createPortal: (input: portalsApi.CreatePortalInput) => Promise<void>;
+  updatePortal: (portalId: string, input: Partial<portalsApi.CreatePortalInput>) => Promise<void>;
   deletePortal: (portalId: string) => Promise<void>;
 
   // Settings
@@ -130,6 +131,7 @@ function toPost(bp: BackendSocialPost, order: number): SocialPost {
     url: bp.url,
     authorHandle: bp.authorHandle,
     authorName: bp.authorName,
+    authorAvatarUrl: bp.authorAvatarUrl,
     publishedAt: bp.publishedAt,
     content: bp.content,
     mediaType: bp.mediaType as SocialPost['mediaType'],
@@ -163,9 +165,6 @@ function toPortal(bp: BackendWordPressPortal): WordPressPortal {
     domain: bp.domain,
     category: bp.category as WordPressPortal['category'],
     connectionStatus: bp.connectionStatus as WordPressPortal['connectionStatus'],
-    ipAddress: bp.ipAddress,
-    wpVersion: bp.wpVersion,
-    pluginVersion: bp.pluginVersion,
     lastSyncAt: bp.lastSyncAt,
     tokenValid: bp.tokenValid,
     webhookEnabled: bp.webhookEnabled,
@@ -219,8 +218,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [pendingVerifyToken, setPendingVerifyToken] = useState<string | null>(null);
   const [pendingChallengeToken, setPendingChallengeToken] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
-  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
+  const VALID_TABS: ActiveTab[] = ['dashboard', 'feeds', 'feed-detail', 'portals', 'preview', 'users', 'audit', 'settings'];
+  const [activeTab, setActiveTabState] = useState<ActiveTab>(() => {
+    const storedTab = sessionStorage.getItem('minfin_active_tab') as ActiveTab | null;
+    const storedFeedId = sessionStorage.getItem('minfin_selected_feed_id');
+    if (storedTab && VALID_TABS.includes(storedTab)) {
+      if ((storedTab === 'feed-detail' || storedTab === 'preview') && !storedFeedId) return 'feeds';
+      return storedTab;
+    }
+    return 'dashboard';
+  });
+  const [selectedFeedId, setSelectedFeedIdState] = useState<string | null>(() => sessionStorage.getItem('minfin_selected_feed_id'));
+
+  const setActiveTab = (tab: ActiveTab) => {
+    setActiveTabState(tab);
+    sessionStorage.setItem('minfin_active_tab', tab);
+  };
+  const setSelectedFeedId = (id: string | null) => {
+    setSelectedFeedIdState(id);
+    if (id) sessionStorage.setItem('minfin_selected_feed_id', id);
+    else sessionStorage.removeItem('minfin_selected_feed_id');
+  };
 
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [posts, setPosts] = useState<SocialPost[]>([]);
@@ -364,6 +382,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const result = await authApi.login(email, password);
       if (result.setupToken) setPendingSetupToken(result.setupToken);
       if (result.challengeToken) setPendingChallengeToken(result.challengeToken);
+      if (result.accessToken && result.refreshToken) {
+        await onAuthenticated({ accessToken: result.accessToken, refreshToken: result.refreshToken });
+      }
       return { requiresMfaSetup: result.requiresMfaSetup, requiresMfaCode: result.requiresMfaCode };
     } catch (e) {
       setAuthError(e instanceof ApiError ? e.message : 'No se pudo iniciar sesión.');
@@ -423,6 +444,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAuditLogs([]);
     setUsers([]);
     claimsRef.current = null;
+    sessionStorage.removeItem('minfin_active_tab');
+    sessionStorage.removeItem('minfin_selected_feed_id');
     showNotification('Sesión institucional cerrada.', 'info');
   };
 
@@ -543,6 +566,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const portal = portals.find(p => p.id === portalId);
     if (success) {
       showNotification(`Conexión exitosa con ${portal?.name || 'el portal'} (${portal?.domain || ''}).`, 'success');
+    } else {
+      showNotification(`No se pudo conectar con ${portal?.name || 'el portal'} (${portal?.domain || ''}). Verifique que el dominio esté activo.`, 'error');
     }
     return success;
   };
@@ -586,6 +611,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const portal = await portalsApi.createPortal(input);
     await loadPortals();
     showNotification(`Portal "${portal.name}" registrado con éxito.`, 'success');
+  };
+
+  const updatePortal = async (portalId: string, input: Partial<portalsApi.CreatePortalInput>) => {
+    const portal = await portalsApi.updatePortal(portalId, input);
+    await loadPortals();
+    showNotification(`Portal "${portal.name}" actualizado con éxito.`, 'success');
   };
 
   const deletePortal = async (portalId: string) => {
@@ -646,6 +677,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         syncAllPortals,
         testPortalConnection,
         createPortal,
+        updatePortal,
         deletePortal,
         updateSettings,
         notification,

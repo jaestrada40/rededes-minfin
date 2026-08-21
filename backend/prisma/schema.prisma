@@ -92,6 +92,7 @@ model SocialPost {
   url           String
   authorHandle  String
   authorName    String
+  authorAvatarUrl String?
   publishedAt   String
   content       String
   mediaType     String
@@ -142,9 +143,6 @@ model WordPressPortal {
   domain           String       @unique
   category         String
   connectionStatus String       @default("connected")
-  ipAddress        String
-  wpVersion        String
-  pluginVersion    String
   lastSyncAt       DateTime     @default(now())
   tokenValid       Boolean      @default(true)
   webhookEnabled   Boolean      @default(true)

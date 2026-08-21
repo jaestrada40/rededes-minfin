@@ -86,7 +86,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
       case 'dashboard': return 'Panel Principal y Resumen Operativo';
       case 'feeds': return 'Catálogo y Gestión de Feeds';
       case 'feed-detail': return 'Registro y Administración de Publicaciones';
-      case 'portals': return 'Distribución en Portales WordPress (25)';
+      case 'portals': return `Distribución en Portales WordPress (${portals.length})`;
       case 'preview': return 'Simulador de Vista Previa Embebida';
       case 'audit': return 'Auditoría, Trazabilidad y Seguridad';
       case 'settings': return 'Configuración Institucional y Cuentas Oficiales';

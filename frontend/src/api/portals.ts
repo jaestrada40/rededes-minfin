@@ -9,9 +9,6 @@ export interface CreatePortalInput {
   name: string;
   domain: string;
   category: string;
-  ipAddress: string;
-  wpVersion: string;
-  pluginVersion: string;
   description: string;
   webhookEnabled?: boolean;
 }
