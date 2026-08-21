@@ -1,8 +1,9 @@
 import React from 'react';
 
-export const MinfinLogo: React.FC<{ className?: string; variant?: 'full' | 'compact' | 'white' | 'dark' }> = ({
+export const MinfinLogo: React.FC<{ className?: string; variant?: 'full' | 'compact' | 'white' | 'dark'; logoUrl?: string }> = ({
   className = 'h-10',
-  variant = 'full'
+  variant = 'full',
+  logoUrl
 }) => {
   const isWhite = variant === 'white';
   const textColor = isWhite ? 'text-white' : 'text-[#0c2340]';
@@ -12,25 +13,33 @@ export const MinfinLogo: React.FC<{ className?: string; variant?: 'full' | 'comp
   return (
     <div className={`flex items-center gap-3 select-none ${className}`}>
       {/* Institutional Escudo / Emblem */}
-      <div className="relative flex items-center justify-center shrink-0 w-10 h-10 rounded-lg bg-gradient-to-b from-[#0c2340] to-[#08182b] border border-blue-400/30 shadow-sm p-1">
-        <svg viewBox="0 0 100 100" className="w-full h-full" fill="none">
-          {/* Outer Sun Rays & Laurel Wreath */}
-          <circle cx="50" cy="50" r="44" stroke="#e2a03f" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" />
-          
-          {/* Stylized Coat of Arms elements: Quetzal & Scroll */}
-          <path d="M25 72 C35 78, 65 78, 75 72" stroke="#4997d0" strokeWidth="3" strokeLinecap="round" />
-          <path d="M30 45 L50 22 L70 45 L50 68 Z" fill="#4997d0" fillOpacity="0.25" stroke="#ffffff" strokeWidth="1.5" />
-          
-          {/* Scroll ribbon representation */}
-          <rect x="36" y="44" width="28" height="12" rx="2" fill="#ffffff" />
-          <line x1="40" y1="48" x2="60" y2="48" stroke="#0c2340" strokeWidth="1.5" />
-          <line x1="42" y1="52" x2="58" y2="52" stroke="#0c2340" strokeWidth="1" />
-          
-          {/* Quetzal perched on top */}
-          <path d="M50 20 C48 16, 52 14, 53 11 C54 8, 51 6, 49 8 C47 10, 48 16, 46 22" stroke="#00a859" strokeWidth="2" strokeLinecap="round" />
-          <path d="M46 22 C42 30, 44 42, 40 54" stroke="#00a859" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </div>
+      {logoUrl ? (
+        <img
+          src={logoUrl}
+          alt="Logo institucional"
+          className="shrink-0 h-full w-auto max-w-full rounded-lg object-contain"
+        />
+      ) : (
+        <div className="relative flex items-center justify-center shrink-0 h-full aspect-square rounded-lg bg-gradient-to-b from-[#0c2340] to-[#08182b] border border-blue-400/30 shadow-sm p-1">
+          <svg viewBox="0 0 100 100" className="w-full h-full" fill="none">
+            {/* Outer Sun Rays & Laurel Wreath */}
+            <circle cx="50" cy="50" r="44" stroke="#e2a03f" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" />
+
+            {/* Stylized Coat of Arms elements: Quetzal & Scroll */}
+            <path d="M25 72 C35 78, 65 78, 75 72" stroke="#4997d0" strokeWidth="3" strokeLinecap="round" />
+            <path d="M30 45 L50 22 L70 45 L50 68 Z" fill="#4997d0" fillOpacity="0.25" stroke="#ffffff" strokeWidth="1.5" />
+
+            {/* Scroll ribbon representation */}
+            <rect x="36" y="44" width="28" height="12" rx="2" fill="#ffffff" />
+            <line x1="40" y1="48" x2="60" y2="48" stroke="#0c2340" strokeWidth="1.5" />
+            <line x1="42" y1="52" x2="58" y2="52" stroke="#0c2340" strokeWidth="1" />
+
+            {/* Quetzal perched on top */}
+            <path d="M50 20 C48 16, 52 14, 53 11 C54 8, 51 6, 49 8 C47 10, 48 16, 46 22" stroke="#00a859" strokeWidth="2" strokeLinecap="round" />
+            <path d="M46 22 C42 30, 44 42, 40 54" stroke="#00a859" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </div>
+      )}
 
       {variant !== 'compact' && (
         <div className="flex flex-col leading-tight">

@@ -7,6 +7,7 @@ export const INITIAL_USER: UserProfile = {
   role: 'admin',
   department: 'Dirección de Tecnologías de la Información (DTI)',
   mfaEnabled: true,
+  isActive: true,
   lastLogin: '2026-08-19 18:45:12'
 };
 
@@ -798,6 +799,7 @@ export const INITIAL_SETTINGS: SystemSettings = {
   ],
   contactSupportEmail: 'soporte.dti@minfin.gob.gt',
   maintenanceMode: false,
+  mfaRequired: true,
   officialAccounts: {
     x: {
       network: 'x',

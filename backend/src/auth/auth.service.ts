@@ -7,6 +7,7 @@ import * as QRCode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 
 export interface TokenPair {
   accessToken: string;
@@ -20,6 +21,7 @@ export class AuthService {
     private readonly users: UsersService,
     private readonly jwt: JwtService,
     private readonly audit: AuditService,
+    private readonly settings: SettingsService,
   ) {}
 
   private signInternal(payload: Record<string, unknown>): string {
@@ -78,6 +80,12 @@ export class AuthService {
     }
 
     if (!user.mfaEnabled) {
+      const systemSettings = await this.settings.get();
+      if (!systemSettings.mfaRequired) {
+        await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+        return this.issueTokens(user.id);
+      }
+
       const setupToken = this.signInternal({ purpose: 'mfa-setup', userId: user.id });
       return { requiresMfaSetup: true as const, setupToken };
     }

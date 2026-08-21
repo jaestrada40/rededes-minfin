@@ -89,12 +89,18 @@ export const FeedPublicPreview: React.FC = () => {
             {/* Avatar */}
             <div className="relative shrink-0">
               <div className={`w-9 h-9 rounded-full overflow-hidden border ${isIG ? 'p-[2px] bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600' : 'bg-slate-100 border-slate-200'}`}>
-                <img
-                  src="https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=120&q=80"
-                  alt="MINFIN"
-                  className="w-full h-full object-cover rounded-full"
-                  referrerPolicy="no-referrer"
-                />
+                {settings.officialAccounts[post.network]?.avatarUrl ? (
+                  <img
+                    src={settings.officialAccounts[post.network].avatarUrl}
+                    alt={post.authorName}
+                    className="w-full h-full object-cover rounded-full"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-[#0c2340] text-white text-xs font-bold">
+                    {post.authorName.charAt(0)}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -127,11 +133,11 @@ export const FeedPublicPreview: React.FC = () => {
 
         {/* Card Media if enabled */}
         {showMedia && (post.mediaUrl || post.mediaThumb) && (
-          <div className="relative border-y border-slate-100 bg-slate-950 overflow-hidden max-h-60 sm:max-h-72">
+          <div className="relative border-y border-slate-100 bg-slate-950 overflow-hidden h-60 sm:h-72">
             <img
               src={post.mediaUrl || post.mediaThumb}
               alt="Publicación MINFIN"
-              className="w-full h-full object-cover max-h-60 sm:max-h-72"
+              className="w-full h-full object-contain"
               referrerPolicy="no-referrer"
             />
             {isYT && (

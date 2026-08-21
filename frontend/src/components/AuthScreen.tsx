@@ -2,51 +2,47 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { MinfinLogo } from './OfficialLogos';
 import { ShieldCheck, Lock, Mail, KeyRound, AlertCircle, ArrowRight, CheckCircle2, RefreshCw } from 'lucide-react';
-import { UserRole } from '../types';
+
+type Step = 'login' | 'mfa-setup' | 'mfa-verify';
 
 export const AuthScreen: React.FC = () => {
-  const { isMfaVerified, login, verifyMfa, user, switchRole } = useApp();
+  const { login, mfaSetupBegin, mfaSetupComplete, mfaVerifyCode, authError, settings } = useApp();
 
-  const [email, setEmail] = useState<string>('jmorales@minfin.gob.gt');
-  const [password, setPassword] = useState<string>('••••••••••••');
-  const [mfaCode, setMfaCode] = useState<string>('582914');
-  const [step, setStep] = useState<'login' | 'mfa'>('login');
-  const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [mfaCode, setMfaCode] = useState<string>('');
+  const [step, setStep] = useState<Step>('login');
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const [timer, setTimer] = useState<number>(45);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
     setLoading(true);
-
-    setTimeout(() => {
-      setLoading(false);
-      if (!email.toLowerCase().includes('@minfin.gob.gt') && !email.toLowerCase().includes('@')) {
-        setError('Debe ingresar una cuenta de correo institucional válida (@minfin.gob.gt).');
-        return;
+    const result = await login(email, password);
+    if (result?.requiresMfaSetup) {
+      const setup = await mfaSetupBegin();
+      if (setup) {
+        setQrDataUrl(setup.qrDataUrl);
+        setStep('mfa-setup');
       }
-      login(email, password);
-      setStep('mfa');
-    }, 500);
+    } else if (result?.requiresMfaCode) {
+      setStep('mfa-verify');
+    }
+    setLoading(false);
   };
 
-  const handleMfaSubmit = (e: React.FormEvent) => {
+  const handleMfaSetupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
     setLoading(true);
-
-    setTimeout(() => {
-      setLoading(false);
-      const success = verifyMfa(mfaCode);
-      if (!success) {
-        setError('El código ingresado es incorrecto o ha expirado. Ingrese un código de 6 dígitos.');
-      }
-    }, 450);
+    await mfaSetupComplete(mfaCode);
+    setLoading(false);
   };
 
-  const handleFillDemoCode = (code: string) => {
-    setMfaCode(code);
+  const handleMfaVerifySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    await mfaVerifyCode(mfaCode);
+    setLoading(false);
   };
 
   return (
@@ -63,7 +59,7 @@ export const AuthScreen: React.FC = () => {
           <span>Acceso Seguro Restringido · Red Gubernamental MINFIN</span>
         </div>
         <div className="text-xs text-slate-400 font-mono">
-          TLS 1.3 / IP: 190.85.120.104
+          TLS 1.3
         </div>
       </header>
 
@@ -73,7 +69,7 @@ export const AuthScreen: React.FC = () => {
           {/* Card Header with Logo */}
           <div className="bg-[#0c1e30] border-b border-slate-700/60 px-6 py-6 text-center">
             <div className="flex justify-center mb-3">
-              <MinfinLogo variant="white" className="h-12" />
+              <MinfinLogo variant="compact" className="h-20" logoUrl={settings.logoUrl} />
             </div>
             <h1 className="text-base font-bold text-white tracking-tight uppercase">
               Gestor Centralizado de Redes Sociales
@@ -85,14 +81,14 @@ export const AuthScreen: React.FC = () => {
 
           {/* Form Step */}
           <div className="p-6">
-            {error && (
+            {authError && (
               <div className="mb-4 p-3 rounded-lg bg-red-950/60 border border-red-500/40 text-red-200 text-xs flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                <span>{error}</span>
+                <span>{authError}</span>
               </div>
             )}
 
-            {step === 'login' ? (
+            {step === 'login' && (
               <form onSubmit={handleLoginSubmit} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
@@ -115,14 +111,9 @@ export const AuthScreen: React.FC = () => {
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
-                      Contraseña Única DTI
-                    </label>
-                    <span className="text-[11px] text-blue-400 hover:underline cursor-pointer">
-                      ¿Olvidó contraseña?
-                    </span>
-                  </div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Contraseña Única DTI
+                  </label>
                   <div className="relative">
                     <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
@@ -149,22 +140,82 @@ export const AuthScreen: React.FC = () => {
                       </>
                     ) : (
                       <>
-                        <span>Continuar a Verificación MFA</span>
+                        <span>Continuar</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
                   </button>
                 </div>
               </form>
-            ) : (
-              <form onSubmit={handleMfaSubmit} className="space-y-4">
+            )}
+
+            {step === 'mfa-setup' && (
+              <form onSubmit={handleMfaSetupSubmit} className="space-y-4">
+                <div className="p-3 bg-blue-950/40 border border-blue-800/50 rounded-lg text-xs text-blue-200">
+                  <div className="flex items-center gap-2 font-semibold text-blue-300 mb-1">
+                    <ShieldCheck className="w-4 h-4 text-blue-400" />
+                    <span>Configuración inicial de MFA</span>
+                  </div>
+                  <p>
+                    Escanee el código QR con su aplicación de autenticación (Google Authenticator, Authy) y luego ingrese el código de 6 dígitos generado.
+                  </p>
+                </div>
+
+                {qrDataUrl && (
+                  <div className="flex justify-center">
+                    <img src={qrDataUrl} alt="Código QR de configuración MFA" className="rounded-lg border border-slate-600 bg-white p-2 w-48 h-48" />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Código de 6 Dígitos
+                  </label>
+                  <div className="relative">
+                    <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      maxLength={6}
+                      required
+                      value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9]/g, ''))}
+                      placeholder="000000"
+                      className="w-full bg-[#081726] border border-slate-600 rounded-lg py-2.5 pl-10 pr-3 text-center text-lg font-mono tracking-widest text-emerald-400 font-bold placeholder:text-slate-600 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={loading || mfaCode.length !== 6}
+                    className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-medium py-2.5 px-4 rounded-lg transition-colors shadow-md text-sm cursor-pointer disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Verificando token seguro...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Confirmar y Acceder al Panel</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {step === 'mfa-verify' && (
+              <form onSubmit={handleMfaVerifySubmit} className="space-y-4">
                 <div className="p-3 bg-blue-950/40 border border-blue-800/50 rounded-lg text-xs text-blue-200">
                   <div className="flex items-center gap-2 font-semibold text-blue-300 mb-1">
                     <ShieldCheck className="w-4 h-4 text-blue-400" />
                     <span>Autenticación de Dos Factores (MFA)</span>
                   </div>
                   <p>
-                    Hemos enviado un código de verificación de 6 dígitos al correo institucional <strong className="text-white">{email}</strong>.
+                    Ingrese el código de 6 dígitos de su aplicación de autenticación.
                   </p>
                 </div>
 
@@ -177,28 +228,19 @@ export const AuthScreen: React.FC = () => {
                     <input
                       type="text"
                       maxLength={6}
+                      required
                       value={mfaCode}
                       onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9]/g, ''))}
-                      placeholder="582914"
+                      placeholder="000000"
                       className="w-full bg-[#081726] border border-slate-600 rounded-lg py-2.5 pl-10 pr-3 text-center text-lg font-mono tracking-widest text-emerald-400 font-bold placeholder:text-slate-600 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400"
                     />
-                  </div>
-                  <div className="flex items-center justify-between mt-2 text-[11px] text-slate-400">
-                    <span>Reenviar código en {timer}s</span>
-                    <button
-                      type="button"
-                      onClick={() => handleFillDemoCode('582914')}
-                      className="text-blue-400 hover:underline cursor-pointer"
-                    >
-                      Autocompletar código
-                    </button>
                   </div>
                 </div>
 
                 <div className="pt-2 space-y-2">
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || mfaCode.length !== 6}
                     className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-medium py-2.5 px-4 rounded-lg transition-colors shadow-md text-sm cursor-pointer disabled:opacity-50"
                   >
                     {loading ? (
@@ -224,32 +266,6 @@ export const AuthScreen: React.FC = () => {
                 </div>
               </form>
             )}
-
-            {/* Role Demo Switcher for testing all permission layers */}
-            <div className="mt-6 pt-4 border-t border-slate-700/60 text-xs">
-              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                Simular Rol Institucional:
-              </span>
-              <div className="grid grid-cols-2 gap-1.5">
-                {(['admin', 'editor', 'auditor', 'viewer'] as UserRole[]).map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => switchRole(r)}
-                    className={`py-1.5 px-2 text-[11px] rounded font-medium border text-center transition-all cursor-pointer ${
-                      user.role === r
-                        ? 'bg-blue-600/30 border-blue-400 text-blue-200 font-bold'
-                        : 'bg-[#081726]/60 border-slate-700 text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    {r === 'admin' && 'Administrador DTI'}
-                    {r === 'editor' && 'Gestor de Contenido'}
-                    {r === 'auditor' && 'Auditor de Control'}
-                    {r === 'viewer' && 'Solo Consulta'}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
       </div>

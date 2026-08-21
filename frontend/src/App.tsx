@@ -8,13 +8,14 @@ import { FeedsView } from './components/FeedsView';
 import { FeedDetailView } from './components/FeedDetailView';
 import { PortalsView } from './components/PortalsView';
 import { FeedPublicPreview } from './components/FeedPublicPreview';
+import { UsersView } from './components/UsersView';
 import { AuditView } from './components/AuditView';
 import { SettingsView } from './components/SettingsView';
 import { CreateFeedModal } from './components/CreateFeedModal';
 import { BatchAssignModal } from './components/BatchAssignModal';
 
 const MainLayout: React.FC = () => {
-  const { isAuthenticated, isMfaVerified, activeTab } = useApp();
+  const { isAuthenticated, isMfaVerified, authLoading, activeTab } = useApp();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Modals state
@@ -22,6 +23,15 @@ const MainLayout: React.FC = () => {
   const [editFeedId, setEditFeedId] = useState<string | null>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [assignTargetFeedId, setAssignTargetFeedId] = useState<string | null>(null);
+
+  // Restoring a session from a persisted refresh token — avoid flashing the login screen.
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#081726] flex items-center justify-center text-slate-300 text-sm">
+        Verificando sesión institucional...
+      </div>
+    );
+  }
 
   // If not authenticated or MFA not complete, render security login
   if (!isAuthenticated || !isMfaVerified) {
@@ -72,6 +82,10 @@ const MainLayout: React.FC = () => {
 
           {activeTab === 'preview' && (
             <FeedPublicPreview />
+          )}
+
+          {activeTab === 'users' && (
+            <UsersView />
           )}
 
           {activeTab === 'audit' && (

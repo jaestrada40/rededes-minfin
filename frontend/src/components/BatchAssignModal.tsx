@@ -111,7 +111,7 @@ export const BatchAssignModal: React.FC<BatchAssignModalProps> = ({ isOpen, onCl
                   onClick={handleSelectAll}
                   className="text-[11px] font-bold text-[#003876] hover:underline cursor-pointer"
                 >
-                  {selectedPortalIds.length === portals.length ? 'Desmarcar todos' : 'Marcar los 25 portales'}
+                  {selectedPortalIds.length === portals.length ? 'Desmarcar todos' : 'Marcar todos los portales'}
                 </button>
               </div>
 

@@ -1,34 +1,36 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { 
-  Feed, 
-  SocialPost, 
-  WordPressPortal, 
-  AuditLogEntry, 
-  SystemSettings, 
-  UserProfile, 
-  UserRole,
-  SocialNetworkType 
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Feed,
+  SocialPost,
+  WordPressPortal,
+  AuditLogEntry,
+  SystemSettings,
+  UserProfile,
+  SocialNetworkType
 } from '../types';
-import { 
-  INITIAL_USER, 
-  INITIAL_FEEDS, 
-  INITIAL_POSTS, 
-  INITIAL_PORTALS, 
-  INITIAL_AUDIT_LOGS, 
-  INITIAL_SETTINGS 
-} from '../data/initialData';
+import * as authApi from '../api/auth';
+import * as feedsApi from '../api/feeds';
+import * as portalsApi from '../api/portals';
+import * as settingsApi from '../api/settings';
+import * as auditApi from '../api/audit';
+import * as usersApi from '../api/users';
+import { ApiError, onSessionExpire } from '../api/client';
+import { BackendFeedDetail, BackendSocialPost, BackendWordPressPortal } from '../api/feeds';
 
-export type ActiveTab = 'dashboard' | 'feeds' | 'feed-detail' | 'portals' | 'preview' | 'audit' | 'settings';
+export type ActiveTab = 'dashboard' | 'feeds' | 'feed-detail' | 'portals' | 'preview' | 'users' | 'audit' | 'settings';
 
 interface AppContextType {
   // Auth state
   isAuthenticated: boolean;
   isMfaVerified: boolean;
+  authLoading: boolean;
+  authError: string | null;
   user: UserProfile;
-  login: (email: string, pass: string) => boolean;
-  verifyMfa: (code: string) => boolean;
-  logout: () => void;
-  switchRole: (newRole: UserRole) => void;
+  login: (email: string, password: string) => Promise<{ requiresMfaSetup?: boolean; requiresMfaCode?: boolean } | null>;
+  mfaSetupBegin: () => Promise<{ qrDataUrl: string } | null>;
+  mfaSetupComplete: (code: string) => Promise<boolean>;
+  mfaVerifyCode: (code: string) => Promise<boolean>;
+  logout: () => Promise<void>;
 
   // Navigation
   activeTab: ActiveTab;
@@ -44,163 +46,384 @@ interface AppContextType {
   portals: WordPressPortal[];
   auditLogs: AuditLogEntry[];
   settings: SystemSettings;
+  users: UserProfile[];
+
+  // User Actions (admin only)
+  createUser: (input: usersApi.CreateUserInput) => Promise<void>;
+  updateUser: (userId: string, input: usersApi.UpdateUserInput) => Promise<void>;
+  updateUserRole: (userId: string, role: string) => Promise<void>;
+  setUserActive: (userId: string, isActive: boolean) => Promise<void>;
+  resetUserMfa: (userId: string) => Promise<void>;
+  changeOwnPassword: (currentPassword: string, newPassword: string) => Promise<void>;
 
   // Feed Actions
-  createFeed: (feedData: Partial<Feed>) => Feed;
-  updateFeed: (id: string, feedData: Partial<Feed>) => void;
-  deleteFeed: (id: string) => void;
-  duplicateFeed: (id: string) => void;
+  createFeed: (feedData: Partial<Feed>) => Promise<void>;
+  updateFeed: (id: string, feedData: Partial<Feed>) => Promise<void>;
+  deleteFeed: (id: string) => Promise<void>;
+  duplicateFeed: (id: string) => Promise<void>;
 
   // Post Actions
-  addPost: (feedId: string, postInput: { urlOrId: string; network: SocialNetworkType; customContent?: string }) => { success: boolean; message: string; post?: SocialPost };
-  removePostFromFeed: (feedId: string, postId: string) => void;
-  reorderPostsInFeed: (feedId: string, startIndex: number, endIndex: number) => void;
-  updatePostContent: (postId: string, newContent: string) => void;
+  addPost: (feedId: string, postInput: { urlOrId: string; network: SocialNetworkType; customContent?: string; customMediaUrl?: string; customAuthorName?: string }) => Promise<{ success: boolean; message: string }>;
+  removePostFromFeed: (feedId: string, postId: string) => Promise<void>;
+  deletePostPermanently: (postId: string) => Promise<void>;
+  reorderPostsInFeed: (feedId: string, startIndex: number, endIndex: number) => Promise<void>;
+  updatePostContent: (postId: string, newContent: string) => Promise<void>;
 
   // Portal Actions
-  assignFeedToPortals: (feedId: string, portalIds: string[]) => void;
-  batchAssignFeedToAllPortals: (feedId: string) => void;
+  assignFeedToPortals: (feedId: string, portalIds: string[]) => Promise<void>;
+  batchAssignFeedToAllPortals: (feedId: string) => Promise<void>;
   syncAllPortals: () => Promise<void>;
   testPortalConnection: (portalId: string) => Promise<boolean>;
+  createPortal: (input: portalsApi.CreatePortalInput) => Promise<void>;
+  deletePortal: (portalId: string) => Promise<void>;
 
   // Settings
-  updateSettings: (newSettings: Partial<SystemSettings>) => void;
-
-  // Audit
-  logAudit: (action: string, module: AuditLogEntry['module'], details?: string, feedAffected?: string, portalAffected?: string, result?: 'Exitoso' | 'Advertencia' | 'Fallido') => void;
+  updateSettings: (newSettings: Partial<SystemSettings>) => Promise<void>;
 
   // Toast / System Notification
   notification: { message: string; type: 'success' | 'info' | 'warning' | 'error' } | null;
   showNotification: (message: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
+
+  // Confirmation dialog (replaces window.confirm)
+  requestConfirm: (message: string, options?: { title?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+const EMPTY_USER: UserProfile = {
+  id: '',
+  name: '',
+  email: '',
+  role: 'viewer',
+  department: '',
+  mfaEnabled: false,
+  isActive: true,
+  lastLogin: ''
+};
+
+function toFeed(bf: BackendFeedDetail): Feed {
+  return {
+    id: bf.id,
+    slug: bf.slug,
+    name: bf.name,
+    description: bf.description,
+    network: bf.network as SocialNetworkType | 'mixed',
+    status: bf.status as Feed['status'],
+    postIds: bf.posts.map(p => p.post.id),
+    assignedPortalIds: bf.portals.map(p => p.portal.id),
+    layoutDefault: bf.layoutDefault as Feed['layoutDefault'],
+    maxItemsDefault: bf.maxItemsDefault,
+    showMetrics: bf.showMetrics,
+    showMedia: bf.showMedia,
+    autoRefreshMinutes: bf.autoRefreshMinutes,
+    createdAt: bf.createdAt,
+    updatedAt: bf.updatedAt,
+    updatedBy: bf.updatedBy
+  };
+}
+
+function toPost(bp: BackendSocialPost, order: number): SocialPost {
+  return {
+    id: bp.id,
+    network: bp.network as SocialNetworkType,
+    postId: bp.postId,
+    url: bp.url,
+    authorHandle: bp.authorHandle,
+    authorName: bp.authorName,
+    publishedAt: bp.publishedAt,
+    content: bp.content,
+    mediaType: bp.mediaType as SocialPost['mediaType'],
+    mediaUrl: bp.mediaUrl,
+    mediaThumb: bp.mediaThumb,
+    videoDuration: bp.videoDuration,
+    stats: bp.stats,
+    isValidated: bp.isValidated,
+    order,
+    addedAt: bp.addedAt,
+    addedBy: bp.addedBy
+  };
+}
+
+function collectPosts(backendFeeds: BackendFeedDetail[]): SocialPost[] {
+  const map = new Map<string, SocialPost>();
+  backendFeeds.forEach(bf => {
+    bf.posts.forEach(fp => {
+      if (!map.has(fp.post.id)) {
+        map.set(fp.post.id, toPost(fp.post, fp.order));
+      }
+    });
+  });
+  return Array.from(map.values());
+}
+
+function toPortal(bp: BackendWordPressPortal): WordPressPortal {
+  return {
+    id: bp.id,
+    name: bp.name,
+    domain: bp.domain,
+    category: bp.category as WordPressPortal['category'],
+    connectionStatus: bp.connectionStatus as WordPressPortal['connectionStatus'],
+    ipAddress: bp.ipAddress,
+    wpVersion: bp.wpVersion,
+    pluginVersion: bp.pluginVersion,
+    lastSyncAt: bp.lastSyncAt,
+    tokenValid: bp.tokenValid,
+    webhookEnabled: bp.webhookEnabled,
+    description: bp.description
+  };
+}
+
+function toSettings(bs: settingsApi.BackendSystemSettings): SystemSettings {
+  return {
+    logoUrl: bs.logoUrl,
+    apiKeys: bs.apiKeys,
+    institutionName: bs.institutionName,
+    shortcodeTag: bs.shortcodeTag,
+    apiCacheDurationSeconds: bs.apiCacheDurationSeconds,
+    webhookSecret: bs.webhookSecret ?? '',
+    autoInvalidateCache: bs.autoInvalidateCache,
+    allowedCorsDomains: bs.allowedCorsDomains,
+    officialAccounts: bs.officialAccounts,
+    contactSupportEmail: bs.contactSupportEmail,
+    maintenanceMode: bs.maintenanceMode,
+    mfaRequired: bs.mfaRequired
+  };
+}
+
+function toAuditEntry(ba: auditApi.BackendAuditLog): AuditLogEntry {
+  return {
+    id: ba.id,
+    timestamp: ba.timestamp,
+    userEmail: ba.userEmail,
+    userName: ba.userEmail.split('@')[0],
+    userRole: ba.userRole as AuditLogEntry['userRole'],
+    action: ba.action,
+    module: ba.module as AuditLogEntry['module'],
+    feedAffected: ba.entity === 'Feed' ? ba.entityId : undefined,
+    portalAffected: ba.entity === 'WordPressPortal' ? ba.entityId : undefined,
+    ipAddress: ba.ipAddress || '',
+    result: ba.result as AuditLogEntry['result'],
+    details: ba.details ? JSON.stringify(ba.details) : undefined
+  };
+}
+
+const AUDIT_ROLES = ['admin', 'auditor'];
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
-  const [isMfaVerified, setIsMfaVerified] = useState<boolean>(true);
-  const [user, setUser] = useState<UserProfile>(INITIAL_USER);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isMfaVerified, setIsMfaVerified] = useState<boolean>(false);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [user, setUser] = useState<UserProfile>(EMPTY_USER);
+  const [pendingSetupToken, setPendingSetupToken] = useState<string | null>(null);
+  const [pendingVerifyToken, setPendingVerifyToken] = useState<string | null>(null);
+  const [pendingChallengeToken, setPendingChallengeToken] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
-  const [selectedFeedId, setSelectedFeedId] = useState<string | null>('feed-01');
+  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
 
-  const [feeds, setFeeds] = useState<Feed[]>(() => {
-    const saved = localStorage.getItem('minfin_feeds_data');
-    return saved ? JSON.parse(saved) : INITIAL_FEEDS;
-  });
-
-  const [posts, setPosts] = useState<SocialPost[]>(() => {
-    const saved = localStorage.getItem('minfin_posts_data');
-    return saved ? JSON.parse(saved) : INITIAL_POSTS;
-  });
-
-  const [portals, setPortals] = useState<WordPressPortal[]>(() => {
-    const saved = localStorage.getItem('minfin_portals_data');
-    return saved ? JSON.parse(saved) : INITIAL_PORTALS;
-  });
-
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => {
-    const saved = localStorage.getItem('minfin_audit_data');
-    return saved ? JSON.parse(saved) : INITIAL_AUDIT_LOGS;
-  });
-
-  const [settings, setSettings] = useState<SystemSettings>(() => {
-    const saved = localStorage.getItem('minfin_settings_data');
-    return saved ? JSON.parse(saved) : INITIAL_SETTINGS;
+  const [feeds, setFeeds] = useState<Feed[]>([]);
+  const [posts, setPosts] = useState<SocialPost[]>([]);
+  const [portals, setPortals] = useState<WordPressPortal[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [settings, setSettings] = useState<SystemSettings>({
+    institutionName: '',
+    shortcodeTag: '',
+    apiCacheDurationSeconds: 0,
+    webhookSecret: '',
+    autoInvalidateCache: false,
+    allowedCorsDomains: [],
+    officialAccounts: {} as SystemSettings['officialAccounts'],
+    contactSupportEmail: '',
+    maintenanceMode: false,
+    mfaRequired: true
   });
 
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'warning' | 'error' } | null>(null);
 
-  // Sync to localStorage
-  useEffect(() => {
-    localStorage.setItem('minfin_feeds_data', JSON.stringify(feeds));
-  }, [feeds]);
-
-  useEffect(() => {
-    localStorage.setItem('minfin_posts_data', JSON.stringify(posts));
-  }, [posts]);
-
-  useEffect(() => {
-    localStorage.setItem('minfin_portals_data', JSON.stringify(portals));
-  }, [portals]);
-
-  useEffect(() => {
-    localStorage.setItem('minfin_audit_data', JSON.stringify(auditLogs));
-  }, [auditLogs]);
-
-  useEffect(() => {
-    localStorage.setItem('minfin_settings_data', JSON.stringify(settings));
-  }, [settings]);
-
-  const showNotification = (message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
+  const showNotification = useCallback((message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
     setNotification({ message, type });
-    setTimeout(() => {
-      setNotification(null);
-    }, 4500);
+    setTimeout(() => setNotification(null), 4500);
+  }, []);
+
+  const [confirmState, setConfirmState] = useState<{ message: string; title?: string; confirmLabel?: string; danger?: boolean } | null>(null);
+  const confirmResolveRef = useRef<((v: boolean) => void) | null>(null);
+
+  const requestConfirm = useCallback(
+    (message: string, options?: { title?: string; confirmLabel?: string; danger?: boolean }): Promise<boolean> => {
+      return new Promise((resolve) => {
+        confirmResolveRef.current = resolve;
+        setConfirmState({ message, ...options });
+      });
+    },
+    []
+  );
+
+  const resolveConfirm = (result: boolean) => {
+    confirmResolveRef.current?.(result);
+    confirmResolveRef.current = null;
+    setConfirmState(null);
   };
 
-  const logAudit = (
-    action: string, 
-    module: AuditLogEntry['module'], 
-    details?: string, 
-    feedAffected?: string, 
-    portalAffected?: string, 
-    result: 'Exitoso' | 'Advertencia' | 'Fallido' = 'Exitoso'
-  ) => {
-    const now = new Date();
-    const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    
-    const newEntry: AuditLogEntry = {
-      id: `aud-${Date.now()}`,
-      timestamp: formattedDate,
-      userEmail: user.email,
-      userName: user.name,
-      userRole: user.role,
-      action,
-      module,
-      feedAffected,
-      portalAffected,
-      ipAddress: '190.85.120.104',
-      result,
-      details
-    };
+  const loadFeeds = useCallback(async () => {
+    const backendFeeds = await feedsApi.listFeeds();
+    setFeeds(backendFeeds.map(toFeed));
+    setPosts(collectPosts(backendFeeds));
+  }, []);
 
-    setAuditLogs(prev => [newEntry, ...prev]);
-  };
+  const loadPortals = useCallback(async () => {
+    const backendPortals = await portalsApi.listPortals();
+    setPortals(backendPortals.map(toPortal));
+  }, []);
 
-  const login = (email: string) => {
-    if (!email.includes('@')) return false;
+  const loadSettings = useCallback(async () => {
+    const backendSettings = await settingsApi.getSettings();
+    setSettings(toSettings(backendSettings));
+  }, []);
+
+  const loadAuditLogs = useCallback(async (role: string) => {
+    if (!AUDIT_ROLES.includes(role)) {
+      setAuditLogs([]);
+      return;
+    }
+    const backendLogs = await auditApi.listAuditLogs();
+    setAuditLogs(backendLogs.map(toAuditEntry));
+  }, []);
+
+  const claimsRef = useRef<authApi.JwtClaims | null>(null);
+
+  const loadUsers = useCallback(async () => {
+    const allUsers = await usersApi.listUsers();
+    setUsers(allUsers.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role as UserProfile['role'],
+      department: u.department || '',
+      mfaEnabled: u.mfaEnabled,
+      isActive: u.isActive,
+      lastLogin: u.lastLoginAt || ''
+    })));
+
+    const claims = claimsRef.current;
+    if (claims) {
+      const match = allUsers.find(u => u.id === claims.sub);
+      setUser({
+        id: claims.sub,
+        name: match?.name || claims.email,
+        email: claims.email,
+        role: claims.role as UserProfile['role'],
+        department: match?.department || '',
+        mfaEnabled: match?.mfaEnabled ?? true,
+        isActive: match?.isActive ?? true,
+        lastLogin: match?.lastLoginAt || ''
+      });
+    }
+  }, []);
+
+  const onAuthenticated = useCallback(async (tokens: authApi.TokenPair) => {
+    authApi.applyTokens(tokens);
+    const claims = authApi.decodeAccessToken(tokens.accessToken);
+    claimsRef.current = claims;
     setIsAuthenticated(true);
-    setIsMfaVerified(false);
-    return true;
+    setIsMfaVerified(true);
+    setAuthError(null);
+    await loadUsers();
+    await Promise.all([loadFeeds(), loadPortals(), loadSettings(), loadAuditLogs(claims.role)]);
+  }, [loadUsers, loadFeeds, loadPortals, loadSettings, loadAuditLogs]);
+
+  useEffect(() => {
+    onSessionExpire(() => {
+      setIsAuthenticated(false);
+      setIsMfaVerified(false);
+      setUser(EMPTY_USER);
+      showNotification('Sesión expirada. Inicie sesión nuevamente.', 'warning');
+    });
+
+    (async () => {
+      try {
+        const branding = await settingsApi.getPublicBranding();
+        setSettings(prev => ({ ...prev, logoUrl: branding.logoUrl ?? undefined, institutionName: branding.institutionName }));
+      } catch {
+        // Non-fatal: login screen falls back to the default emblem.
+      }
+
+      const tokens = await authApi.restoreSession();
+      if (tokens) {
+        await onAuthenticated(tokens);
+      }
+      setAuthLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    setAuthError(null);
+    try {
+      const result = await authApi.login(email, password);
+      if (result.setupToken) setPendingSetupToken(result.setupToken);
+      if (result.challengeToken) setPendingChallengeToken(result.challengeToken);
+      return { requiresMfaSetup: result.requiresMfaSetup, requiresMfaCode: result.requiresMfaCode };
+    } catch (e) {
+      setAuthError(e instanceof ApiError ? e.message : 'No se pudo iniciar sesión.');
+      return null;
+    }
   };
 
-  const verifyMfa = (code: string) => {
-    if (code.length === 6) {
-      setIsMfaVerified(true);
-      logAudit('Inicio de sesión MFA exitoso', 'MFA', 'Código de 6 dígitos validado en sistema DTI-MINFIN');
+  const mfaSetupBegin = async () => {
+    if (!pendingSetupToken) return null;
+    try {
+      const result = await authApi.mfaSetup(pendingSetupToken);
+      setPendingVerifyToken(result.verifyToken);
+      return { qrDataUrl: result.qrDataUrl };
+    } catch (e) {
+      setAuthError(e instanceof ApiError ? e.message : 'No se pudo generar el código MFA.');
+      return null;
+    }
+  };
+
+  const mfaSetupComplete = async (code: string) => {
+    if (!pendingVerifyToken) return false;
+    try {
+      const tokens = await authApi.mfaSetupVerify(pendingVerifyToken, code);
+      setPendingSetupToken(null);
+      setPendingVerifyToken(null);
+      await onAuthenticated(tokens);
       showNotification('Autenticación institucional de dos factores completada.', 'success');
       return true;
+    } catch (e) {
+      setAuthError(e instanceof ApiError ? e.message : 'Código MFA inválido.');
+      return false;
     }
-    return false;
   };
 
-  const logout = () => {
-    logAudit('Cierre de sesión de usuario', 'Seguridad', 'Sesión cerrada por el usuario');
+  const mfaVerifyCode = async (code: string) => {
+    if (!pendingChallengeToken) return false;
+    try {
+      const tokens = await authApi.mfaVerify(pendingChallengeToken, code);
+      setPendingChallengeToken(null);
+      await onAuthenticated(tokens);
+      showNotification('Autenticación institucional de dos factores completada.', 'success');
+      return true;
+    } catch (e) {
+      setAuthError(e instanceof ApiError ? e.message : 'Código MFA inválido.');
+      return false;
+    }
+  };
+
+  const logout = async () => {
+    await authApi.logout();
     setIsAuthenticated(false);
     setIsMfaVerified(false);
+    setUser(EMPTY_USER);
+    setFeeds([]);
+    setPosts([]);
+    setPortals([]);
+    setAuditLogs([]);
+    setUsers([]);
+    claimsRef.current = null;
     showNotification('Sesión institucional cerrada.', 'info');
-  };
-
-  const switchRole = (newRole: UserRole) => {
-    const roleNames: Record<UserRole, string> = {
-      admin: 'Administrador DTI',
-      editor: 'Gestor de Contenido',
-      auditor: 'Auditor de Control Interno',
-      viewer: 'Consulta'
-    };
-    setUser(prev => ({ ...prev, role: newRole }));
-    logAudit(`Cambio de rol de sesión a ${newRole.toUpperCase()}`, 'Seguridad', `Rol activo cambiado a: ${roleNames[newRole]}`);
-    showNotification(`Rol cambiado a ${roleNames[newRole]}`, 'info');
   };
 
   const openFeedDetail = (feedId: string) => {
@@ -213,362 +436,168 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveTab('preview');
   };
 
-  // Helper to extract social post ID from URL
-  const extractPostIdAndDetails = (input: string, network: SocialNetworkType) => {
-    const trimmed = input.trim();
-    let postId = trimmed;
-    let url = trimmed;
-
-    if (network === 'x') {
-      const match = trimmed.match(/(?:twitter\.com|x\.com)\/(?:#!\/)?(\w+)\/status(?:es)?\/(\d+)/i);
-      if (match) {
-        postId = match[2];
-        url = `https://x.com/${match[1]}/status/${postId}`;
-      } else if (/^\d+$/.test(trimmed)) {
-        postId = trimmed;
-        url = `https://x.com/MinfinGT/status/${trimmed}`;
-      }
-    } else if (network === 'instagram') {
-      const match = trimmed.match(/(?:instagram\.com)\/(?:p|reel)\/([A-Za-z0-9_-]+)/i);
-      if (match) {
-        postId = match[1];
-        url = `https://www.instagram.com/p/${postId}/`;
-      }
-    } else if (network === 'youtube') {
-      const match = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/i);
-      if (match) {
-        postId = match[1];
-        url = `https://www.youtube.com/watch?v=${postId}`;
-      }
-    } else if (network === 'facebook') {
-      const match = trimmed.match(/facebook\.com\/(?:.+)\/(?:posts|videos|reel)\/([A-Za-z0-9_-]+)/i) || trimmed.match(/pfbid([A-Za-z0-9]+)/);
-      if (match) {
-        postId = match[1] || match[0];
-      }
-    } else if (network === 'linkedin') {
-      const match = trimmed.match(/activity:(\d+)/) || trimmed.match(/urn:li:activity:(\d+)/) || trimmed.match(/\/posts\/([A-Za-z0-9_-]+)/);
-      if (match) {
-        postId = match[1];
-      }
+  const createFeed = async (feedData: Partial<Feed>) => {
+    const { assignedPortalIds, ...rest } = feedData;
+    const created = await feedsApi.createFeed({
+      slug: rest.slug,
+      name: rest.name || 'Nuevo Feed Institucional',
+      description: rest.description || 'Feed centralizado para distribución en portales WordPress',
+      network: rest.network || 'x',
+      status: rest.status,
+      layoutDefault: rest.layoutDefault,
+      maxItemsDefault: rest.maxItemsDefault,
+      showMetrics: rest.showMetrics,
+      showMedia: rest.showMedia,
+      autoRefreshMinutes: rest.autoRefreshMinutes
+    });
+    if (assignedPortalIds && assignedPortalIds.length > 0) {
+      await portalsApi.assignFeedToPortals(created.id, assignedPortalIds);
     }
-
-    return { postId, url };
+    await loadFeeds();
+    showNotification(`Feed "${created.name}" creado con éxito. Shortcode: [${settings.shortcodeTag} feed="${created.slug}"]`, 'success');
   };
 
-  const createFeed = (feedData: Partial<Feed>): Feed => {
-    const slug = feedData.slug || (feedData.name ? feedData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : `feed-${Date.now()}`);
-    const newFeed: Feed = {
-      id: `feed-${Date.now()}`,
-      slug,
-      name: feedData.name || 'Nuevo Feed Institucional',
-      description: feedData.description || 'Feed centralizado para distribución en portales WordPress',
-      network: feedData.network || 'x',
-      status: feedData.status || 'active',
-      postIds: feedData.postIds || [],
-      assignedPortalIds: feedData.assignedPortalIds || ['wp-01', 'wp-02'],
-      layoutDefault: feedData.layoutDefault || 'grid',
-      maxItemsDefault: feedData.maxItemsDefault || 6,
-      showMetrics: feedData.showMetrics !== undefined ? feedData.showMetrics : true,
-      showMedia: feedData.showMedia !== undefined ? feedData.showMedia : true,
-      autoRefreshMinutes: feedData.autoRefreshMinutes || 5,
-      createdAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-      updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-      updatedBy: user.email
-    };
-
-    setFeeds(prev => [newFeed, ...prev]);
-    logAudit('Creó nuevo feed institucional', 'Feeds', `Slug: ${slug} (${newFeed.name})`, newFeed.name, `${newFeed.assignedPortalIds.length} portales asignados`);
-    showNotification(`Feed "${newFeed.name}" creado con éxito. Shortcode: [${settings.shortcodeTag} feed="${slug}"]`, 'success');
-    return newFeed;
-  };
-
-  const updateFeed = (id: string, feedData: Partial<Feed>) => {
-    setFeeds(prev => prev.map(f => {
-      if (f.id === id) {
-        const updated = {
-          ...f,
-          ...feedData,
-          updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-          updatedBy: user.email
-        };
-        logAudit('Actualizó configuración de feed', 'Feeds', `Feed: ${updated.name}`, updated.name, `${updated.assignedPortalIds.length} portales`);
-        return updated;
-      }
-      return f;
-    }));
+  const updateFeed = async (id: string, feedData: Partial<Feed>) => {
+    const { assignedPortalIds, postIds, ...rest } = feedData;
+    await feedsApi.updateFeed(id, rest);
+    if (assignedPortalIds) {
+      await portalsApi.assignFeedToPortals(id, assignedPortalIds);
+    }
+    await loadFeeds();
     showNotification('Configuración de feed guardada y sincronizada.', 'success');
   };
 
-  const deleteFeed = (id: string) => {
+  const deleteFeed = async (id: string) => {
     const feed = feeds.find(f => f.id === id);
-    if (!feed) return;
-
-    setFeeds(prev => prev.filter(f => f.id !== id));
-    logAudit('Eliminó feed institucional', 'Feeds', `Se eliminó el feed: ${feed.name} (${feed.slug})`, feed.name, `${feed.assignedPortalIds.length} portales desvinculados`, 'Advertencia');
-    showNotification(`Feed "${feed.name}" eliminado del sistema.`, 'warning');
+    await feedsApi.deleteFeed(id);
+    await loadFeeds();
+    showNotification(`Feed "${feed?.name || ''}" eliminado del sistema.`, 'warning');
   };
 
-  const duplicateFeed = (id: string) => {
-    const target = feeds.find(f => f.id === id);
-    if (!target) return;
-
-    const copySlug = `${target.slug}-copia-${Math.floor(Math.random() * 1000)}`;
-    const copy: Feed = {
-      ...target,
-      id: `feed-${Date.now()}`,
-      slug: copySlug,
-      name: `${target.name} (Copia)`,
-      createdAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-      updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-      updatedBy: user.email
-    };
-
-    setFeeds(prev => [copy, ...prev]);
-    logAudit('Duplicó feed existente', 'Feeds', `Copia generada: ${copySlug}`, copy.name);
+  const duplicateFeed = async (id: string) => {
+    const copy = await feedsApi.duplicateFeed(id);
+    await loadFeeds();
     showNotification(`Feed duplicado: "${copy.name}".`, 'info');
   };
 
-  const addPost = (feedId: string, postInput: { urlOrId: string; network: SocialNetworkType; customContent?: string }) => {
-    const targetFeed = feeds.find(f => f.id === feedId);
-    if (!targetFeed) {
-      return { success: false, message: 'Feed no encontrado.' };
+  const addPost = async (feedId: string, postInput: { urlOrId: string; network: SocialNetworkType; customContent?: string; customMediaUrl?: string; customAuthorName?: string }) => {
+    const result = await feedsApi.addPostToFeed(feedId, postInput);
+    if (result.success) {
+      await loadFeeds();
+      const feed = feeds.find(f => f.id === feedId);
+      showNotification(`Publicación agregada al feed${feed ? ` "${feed.name}"` : ''}.`, 'success');
     }
-
-    const { postId, url } = extractPostIdAndDetails(postInput.urlOrId, postInput.network);
-
-    if (!postId) {
-      return { success: false, message: 'No se pudo identificar un ID o URL válida.' };
-    }
-
-    // Check if post already exists in memory or generate new
-    let existingPost = posts.find(p => p.postId === postId && p.network === postInput.network);
-    let postToLink: SocialPost;
-
-    if (existingPost) {
-      postToLink = existingPost;
-    } else {
-      const networkAccounts = settings.officialAccounts[postInput.network];
-      const newPostId = `post-${postInput.network}-${Date.now()}`;
-      
-      const sampleContents: Record<SocialNetworkType, string> = {
-        x: postInput.customContent || `🇬🇹 #MINFINInforma | Publicación oficial de @MinfinGT sobre finanzas públicas, ejecución presupuestaria y modernización del Estado.`,
-        facebook: postInput.customContent || `Reunión de coordinación técnica en el Ministerio de Finanzas Públicas con autoridades para el fortalecimiento institucional.`,
-        instagram: postInput.customContent || `Boletín visual oficial del Ministerio de Finanzas Públicas de Guatemala. Conoce más en minfin.gob.gt #Transparencia`,
-        youtube: postInput.customContent || `Transmisión oficial del MINFIN: Capacitaciones en sistemas de gestión financiera pública.`,
-        linkedin: postInput.customContent || `El Ministerio de Finanzas Públicas comparte oportunidades de desarrollo profesional y novedades del sector hacendario.`,
-        tiktok: postInput.customContent || `Cápsula educativa MINFIN sobre cómo se distribuye el presupuesto de la nación.`
-      };
-
-      const sampleImages: Record<SocialNetworkType, string> = {
-        x: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1000&q=80',
-        facebook: 'https://images.unsplash.com/photo-1577495508048-b635879837f1?auto=format&fit=crop&w=1000&q=80',
-        instagram: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=1000&q=80',
-        youtube: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1000&q=80',
-        linkedin: 'https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=1000&q=80',
-        tiktok: 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?auto=format&fit=crop&w=1000&q=80'
-      };
-
-      postToLink = {
-        id: newPostId,
-        network: postInput.network,
-        postId: postId,
-        url: url,
-        authorHandle: networkAccounts?.handle || '@MinfinGT',
-        authorName: networkAccounts?.name || 'Ministerio de Finanzas Públicas',
-        publishedAt: 'Hoy · Reciente',
-        content: sampleContents[postInput.network],
-        mediaType: postInput.network === 'youtube' ? 'video' : 'image',
-        mediaUrl: postInput.network !== 'youtube' ? sampleImages[postInput.network] : undefined,
-        mediaThumb: postInput.network === 'youtube' ? sampleImages.youtube : undefined,
-        videoDuration: postInput.network === 'youtube' ? '18:30' : undefined,
-        stats: {
-          views: 4500,
-          likes: 280,
-          reposts: 45,
-          comments: 12
-        },
-        isValidated: true,
-        order: targetFeed.postIds.length + 1,
-        addedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-        addedBy: user.email
-      };
-
-      setPosts(prev => [postToLink, ...prev]);
-    }
-
-    // Add to feed if not already in postIds
-    if (!targetFeed.postIds.includes(postToLink.id)) {
-      const updatedPostIds = [postToLink.id, ...targetFeed.postIds];
-      setFeeds(prev => prev.map(f => {
-        if (f.id === feedId) {
-          return {
-            ...f,
-            postIds: updatedPostIds,
-            updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-            updatedBy: user.email
-          };
-        }
-        return f;
-      }));
-
-      logAudit(
-        'Agregó publicación a feed',
-        'Publicaciones',
-        `ID: ${postId} de ${postInput.network.toUpperCase()} incorporado exitosamente`,
-        targetFeed.name,
-        `${targetFeed.assignedPortalIds.length} portales WordPress actualizados automáticamente`
-      );
-
-      showNotification(`Publicación ${postId} agregada al feed. Los ${targetFeed.assignedPortalIds.length} portales asignados se actualizaron en tiempo real.`, 'success');
-      return { success: true, message: 'Publicación agregada con éxito.', post: postToLink };
-    } else {
-      return { success: false, message: 'La publicación ya se encuentra registrada en este feed.' };
-    }
+    return { success: result.success, message: result.message };
   };
 
-  const removePostFromFeed = (feedId: string, postId: string) => {
-    const feed = feeds.find(f => f.id === feedId);
-    const post = posts.find(p => p.id === postId);
-    if (!feed) return;
-
-    setFeeds(prev => prev.map(f => {
-      if (f.id === feedId) {
-        return {
-          ...f,
-          postIds: f.postIds.filter(id => id !== postId),
-          updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-          updatedBy: user.email
-        };
-      }
-      return f;
-    }));
-
-    logAudit(
-      'Eliminó publicación del feed',
-      'Publicaciones',
-      `Publicación ID: ${post?.postId || postId} removida`,
-      feed.name,
-      `${feed.assignedPortalIds.length} portales sincronizados`
-    );
-
+  const removePostFromFeed = async (feedId: string, postId: string) => {
+    await feedsApi.removePostFromFeed(feedId, postId);
+    await loadFeeds();
     showNotification('Publicación eliminada del feed central y desvinculada de los portales.', 'info');
   };
 
-  const reorderPostsInFeed = (feedId: string, startIndex: number, endIndex: number) => {
+  const deletePostPermanently = async (postId: string) => {
+    await feedsApi.deletePostPermanently(postId);
+    await loadFeeds();
+    showNotification('Publicación eliminada permanentemente de la base de datos.', 'warning');
+  };
+
+  const reorderPostsInFeed = async (feedId: string, startIndex: number, endIndex: number) => {
     const feed = feeds.find(f => f.id === feedId);
     if (!feed) return;
-
-    const newIds = Array.from(feed.postIds);
+    const newIds: string[] = Array.from(feed.postIds);
     const [removed] = newIds.splice(startIndex, 1);
     newIds.splice(endIndex, 0, removed);
-
-    setFeeds(prev => prev.map(f => {
-      if (f.id === feedId) {
-        return {
-          ...f,
-          postIds: newIds,
-          updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-          updatedBy: user.email
-        };
-      }
-      return f;
-    }));
-
-    logAudit('Reordenó publicaciones', 'Feeds', `Nueva secuencia de orden establecida en feed: ${feed.name}`, feed.name);
+    await feedsApi.reorderFeedPosts(feedId, newIds);
+    await loadFeeds();
     showNotification('Nuevo orden de publicaciones guardado.', 'success');
   };
 
-  const updatePostContent = (postId: string, newContent: string) => {
-    setPosts(prev => prev.map(p => {
-      if (p.id === postId) {
-        return { ...p, content: newContent };
-      }
-      return p;
-    }));
-    logAudit('Editó contenido de publicación', 'Publicaciones', `Publicación ID: ${postId} modificada`);
+  const updatePostContent = async (postId: string, newContent: string) => {
+    await feedsApi.updatePostContent(postId, newContent);
+    await loadFeeds();
     showNotification('Contenido de publicación actualizado.', 'success');
   };
 
-  const assignFeedToPortals = (feedId: string, portalIds: string[]) => {
-    const feed = feeds.find(f => f.id === feedId);
-    if (!feed) return;
-
-    setFeeds(prev => prev.map(f => {
-      if (f.id === feedId) {
-        return {
-          ...f,
-          assignedPortalIds: portalIds,
-          updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-          updatedBy: user.email
-        };
-      }
-      return f;
-    }));
-
-    logAudit(
-      'Asignó feed a portales WordPress',
-      'Portales',
-      `Se actualizaron los portales asignados (${portalIds.length} portales)`,
-      feed.name,
-      `${portalIds.length} portales`
-    );
-
+  const assignFeedToPortals = async (feedId: string, portalIds: string[]) => {
+    await portalsApi.assignFeedToPortals(feedId, portalIds);
+    await loadFeeds();
     showNotification(`Asignación guardada: Feed vinculado a ${portalIds.length} portales WordPress.`, 'success');
   };
 
-  const batchAssignFeedToAllPortals = (feedId: string) => {
-    const allPortalIds = portals.map(p => p.id);
-    assignFeedToPortals(feedId, allPortalIds);
+  const batchAssignFeedToAllPortals = async (feedId: string) => {
+    await portalsApi.assignFeedToAllPortals(feedId);
+    await loadFeeds();
+    showNotification('Feed asignado a todos los portales institucionales.', 'success');
   };
 
   const syncAllPortals = async () => {
-    setPortals(prev => prev.map(p => ({ ...p, connectionStatus: 'syncing' })));
-    
-    // Simulate webhook triggers to all 25 WordPress portals
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    setPortals(prev => prev.map(p => ({
-      ...p,
-      connectionStatus: 'connected',
-      lastSyncAt: 'Justo ahora',
-      tokenValid: true
-    })));
-
-    logAudit(
-      'Sincronización global ejecutada',
-      'Portales',
-      'Webhook de invalidación de caché enviado a los 25 portales institucionales (HTTP 200 OK)',
-      undefined,
-      '25/25 Portales en línea'
-    );
-
-    showNotification('Sincronización global completada. Los 25 portales WordPress respondieron con éxito.', 'success');
+    await portalsApi.syncAllPortals();
+    await loadPortals();
+    showNotification(`Sincronización global completada. Los ${portals.length} portales WordPress respondieron con éxito.`, 'success');
   };
 
   const testPortalConnection = async (portalId: string): Promise<boolean> => {
+    const success = await portalsApi.testPortalConnection(portalId);
+    await loadPortals();
     const portal = portals.find(p => p.id === portalId);
-    if (!portal) return false;
-
-    setPortals(prev => prev.map(p => p.id === portalId ? { ...p, connectionStatus: 'syncing' } : p));
-    await new Promise(resolve => setTimeout(resolve, 600));
-
-    setPortals(prev => prev.map(p => p.id === portalId ? { ...p, connectionStatus: 'connected', lastSyncAt: 'Justo ahora' } : p));
-
-    logAudit(
-      'Prueba de conexión con portal',
-      'Portales',
-      `Test de ping y token REST API en dominio: ${portal.domain}`,
-      undefined,
-      portal.name
-    );
-
-    showNotification(`Conexión exitosa con ${portal.name} (${portal.domain}). Plugin v2.4.1 activo.`, 'success');
-    return true;
+    if (success) {
+      showNotification(`Conexión exitosa con ${portal?.name || 'el portal'} (${portal?.domain || ''}).`, 'success');
+    }
+    return success;
   };
 
-  const updateSettings = (newSettings: Partial<SystemSettings>) => {
-    setSettings(prev => ({ ...prev, ...newSettings }));
-    logAudit('Actualizó configuración del sistema', 'Configuración', 'Parámetros institucionales modificados');
+  const createUser = async (input: usersApi.CreateUserInput) => {
+    const created = await usersApi.createUser(input);
+    await loadUsers();
+    showNotification(`Usuario "${created.name}" creado con éxito.`, 'success');
+  };
+
+  const updateUser = async (userId: string, input: usersApi.UpdateUserInput) => {
+    await usersApi.updateUser(userId, input);
+    await loadUsers();
+    showNotification('Datos del usuario actualizados.', 'success');
+  };
+
+  const updateUserRole = async (userId: string, role: string) => {
+    await usersApi.updateUserRole(userId, role);
+    await loadUsers();
+    showNotification('Rol de usuario actualizado.', 'success');
+  };
+
+  const setUserActive = async (userId: string, isActive: boolean) => {
+    await usersApi.setUserActive(userId, isActive);
+    await loadUsers();
+    showNotification(isActive ? 'Usuario reactivado.' : 'Usuario desactivado.', isActive ? 'success' : 'warning');
+  };
+
+  const resetUserMfa = async (userId: string) => {
+    await usersApi.resetUserMfa(userId);
+    await loadUsers();
+    showNotification('MFA restablecido. El usuario deberá configurarlo de nuevo en su próximo inicio de sesión.', 'warning');
+  };
+
+  const changeOwnPassword = async (currentPassword: string, newPassword: string) => {
+    await usersApi.changeOwnPassword(currentPassword, newPassword);
+    showNotification('Contraseña actualizada correctamente.', 'success');
+  };
+
+  const createPortal = async (input: portalsApi.CreatePortalInput) => {
+    const portal = await portalsApi.createPortal(input);
+    await loadPortals();
+    showNotification(`Portal "${portal.name}" registrado con éxito.`, 'success');
+  };
+
+  const deletePortal = async (portalId: string) => {
+    const portal = portals.find(p => p.id === portalId);
+    await portalsApi.deletePortal(portalId);
+    await Promise.all([loadPortals(), loadFeeds()]);
+    showNotification(`Portal "${portal?.name || ''}" eliminado del sistema.`, 'warning');
+  };
+
+  const updateSettings = async (newSettings: Partial<SystemSettings>) => {
+    await settingsApi.updateSettings(newSettings);
+    await loadSettings();
     showNotification('Configuración institucional guardada.', 'success');
   };
 
@@ -577,11 +606,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         isAuthenticated,
         isMfaVerified,
+        authLoading,
+        authError,
         user,
         login,
-        verifyMfa,
+        mfaSetupBegin,
+        mfaSetupComplete,
+        mfaVerifyCode,
         logout,
-        switchRole,
         activeTab,
         setActiveTab,
         selectedFeedId,
@@ -593,25 +625,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         portals,
         auditLogs,
         settings,
+        users,
+        createUser,
+        updateUser,
+        updateUserRole,
+        setUserActive,
+        resetUserMfa,
+        changeOwnPassword,
         createFeed,
         updateFeed,
         deleteFeed,
         duplicateFeed,
         addPost,
         removePostFromFeed,
+        deletePostPermanently,
         reorderPostsInFeed,
         updatePostContent,
         assignFeedToPortals,
         batchAssignFeedToAllPortals,
         syncAllPortals,
         testPortalConnection,
+        createPortal,
+        deletePortal,
         updateSettings,
-        logAudit,
         notification,
-        showNotification
+        showNotification,
+        requestConfirm
       }}
     >
       {children}
+      {confirmState && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-300 max-w-sm w-full p-5 space-y-4">
+            <h3 className="text-sm font-bold text-slate-900">
+              {confirmState.title || 'Confirmar acción'}
+            </h3>
+            <p className="text-xs text-slate-600 leading-relaxed">{confirmState.message}</p>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => resolveConfirm(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold text-xs cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => resolveConfirm(true)}
+                className={`px-4 py-2 text-white rounded-lg font-bold text-xs cursor-pointer ${
+                  confirmState.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-[#003876] hover:bg-[#002d5e]'
+                }`}
+              >
+                {confirmState.confirmLabel || 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppContext.Provider>
   );
 };

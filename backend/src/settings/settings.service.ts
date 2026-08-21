@@ -15,6 +15,14 @@ export class SettingsService {
     return this.prisma.systemSettings.findUniqueOrThrow({ where: { id: 'default' } });
   }
 
+  async getPublicBranding(): Promise<{ logoUrl: string | null; institutionName: string }> {
+    const settings = await this.prisma.systemSettings.findUniqueOrThrow({
+      where: { id: 'default' },
+      select: { logoUrl: true, institutionName: true },
+    });
+    return settings;
+  }
+
   async update(dto: UpdateSettingsDto, actor: { id: string; email: string; role: string }): Promise<SystemSettings> {
     const settings = await this.prisma.systemSettings.update({
       where: { id: 'default' },

@@ -25,16 +25,17 @@ interface FeedsViewProps {
 }
 
 export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenAssignModal }) => {
-  const { 
-    feeds, 
-    posts, 
-    portals, 
-    settings, 
-    deleteFeed, 
-    duplicateFeed, 
-    openFeedDetail, 
-    openFeedPreview, 
-    user 
+  const {
+    feeds,
+    posts,
+    portals,
+    settings,
+    deleteFeed,
+    duplicateFeed,
+    openFeedDetail,
+    openFeedPreview,
+    requestConfirm,
+    user
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -235,8 +236,8 @@ export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenA
                           </button>
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[180px]">
-                          {feed.assignedPortalIds.length === portals.length
-                            ? 'Asignado a todos los 25 portales'
+                          {feed.assignedPortalIds.length > 0 && feed.assignedPortalIds.length === portals.length
+                            ? 'Asignado a todos los portales'
                             : `${feed.assignedPortalIds.length} portales vinculados`}
                         </div>
                       </td>
@@ -319,10 +320,12 @@ export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenA
                               </button>
 
                               <button
-                                onClick={() => {
-                                  if (confirm(`¿Confirma que desea eliminar el feed "${feed.name}"? Los portales dejarán de mostrar este contenido.`)) {
-                                    deleteFeed(feed.id);
-                                  }
+                                onClick={async () => {
+                                  const ok = await requestConfirm(
+                                    `¿Confirma que desea eliminar el feed "${feed.name}"? Los portales dejarán de mostrar este contenido.`,
+                                    { title: 'Eliminar feed', confirmLabel: 'Eliminar', danger: true }
+                                  );
+                                  if (ok) deleteFeed(feed.id);
                                 }}
                                 className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded border border-slate-200 cursor-pointer"
                                 title="Eliminar feed"

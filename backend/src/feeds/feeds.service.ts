@@ -55,6 +55,126 @@ function extractPostIdAndDetails(input: string, network: string): { postId: stri
   return { postId, url };
 }
 
+const OEMBED_ENDPOINTS: Record<string, (url: string) => string> = {
+  youtube: (url) => `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
+  tiktok: (url) => `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`,
+};
+
+interface OEmbedResult {
+  title?: string;
+  authorName?: string;
+  thumbnailUrl?: string;
+}
+
+// YouTube y TikTok exponen oEmbed público sin credenciales. Instagram y
+// LinkedIn requieren una API key/app aprobada por la plataforma. Facebook se
+// resuelve vía Graph API (ver fetchFacebookPost) cuando hay un token
+// configurado en Configuración. X se resuelve aparte vía fetchTwitterCard
+// (meta tags Open Graph, incluye imagen real). Sin credenciales/servicio
+// disponible, se usa contenido de muestra (ver SAMPLE_CONTENT).
+async function fetchOEmbed(network: string, url: string): Promise<OEmbedResult | null> {
+  const buildUrl = OEMBED_ENDPOINTS[network];
+  if (!buildUrl) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(buildUrl(url), { signal: controller.signal });
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    return {
+      title: typeof data.title === 'string' ? data.title : undefined,
+      authorName: typeof data.author_name === 'string' ? data.author_name : undefined,
+      thumbnailUrl: typeof data.thumbnail_url === 'string' ? data.thumbnail_url : undefined,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function getMetaContent(html: string, property: string): string | undefined {
+  const patterns = [
+    new RegExp(`<meta[^>]*property=["']${property}["'][^>]*content=["']([^"']*)["']`, 'i'),
+    new RegExp(`<meta[^>]*content=["']([^"']*)["'][^>]*property=["']${property}["']`, 'i'),
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match) return decodeHtmlEntities(match[1]);
+  }
+  return undefined;
+}
+
+// X no ofrece una API de lectura gratuita, pero sirve etiquetas Open Graph
+// completas (título, descripción e imagen real) a crawlers de vista previa
+// como Twitterbot/Facebookexternalhit — el mismo mecanismo que usan otras
+// redes para renderizar la tarjeta de enlace. Sin necesidad de credenciales.
+async function fetchTwitterCard(url: string): Promise<OEmbedResult | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Twitterbot/1.0' },
+    });
+    if (!res.ok) return null;
+
+    const html = await res.text();
+    const ogTitle = getMetaContent(html, 'og:title');
+    const authorName = ogTitle ? ogTitle.replace(/\s*\(@[^)]+\)\s*on X$/i, '').trim() : undefined;
+
+    return {
+      title: getMetaContent(html, 'og:description'),
+      authorName,
+      thumbnailUrl: getMetaContent(html, 'og:image'),
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Facebook requiere un Page Access Token (Graph API) configurado en
+// Configuración > Credenciales de API. postId debe ser el ID nativo del
+// post de Facebook (no la URL). Sin token configurado, retorna null y se
+// usa contenido de muestra.
+async function fetchFacebookPost(postId: string, pageAccessToken?: string): Promise<OEmbedResult | null> {
+  if (!pageAccessToken) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v19.0/${encodeURIComponent(postId)}?fields=message,full_picture,from&access_token=${encodeURIComponent(pageAccessToken)}`,
+      { signal: controller.signal },
+    );
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    return {
+      title: typeof data.message === 'string' ? data.message : undefined,
+      authorName: typeof data.from?.name === 'string' ? data.from.name : undefined,
+      thumbnailUrl: typeof data.full_picture === 'string' ? data.full_picture : undefined,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 const SAMPLE_CONTENT: Record<string, string> = {
   x: '🇬🇹 #MINFINInforma | Publicación oficial de @MinfinGT sobre finanzas públicas, ejecución presupuestaria y modernización del Estado.',
   facebook: 'Reunión de coordinación técnica en el Ministerio de Finanzas Públicas con autoridades para el fortalecimiento institucional.',
@@ -105,8 +225,14 @@ export class FeedsService {
     return feed;
   }
 
-  findAll(): Promise<Feed[]> {
-    return this.prisma.feed.findMany({ orderBy: { createdAt: 'desc' } });
+  findAll() {
+    return this.prisma.feed.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        posts: { orderBy: { order: 'asc' }, include: { post: true } },
+        portals: { include: { portal: true } },
+      },
+    });
   }
 
   findOne(id: string) {
@@ -117,6 +243,61 @@ export class FeedsService {
         portals: { include: { portal: true } },
       },
     });
+  }
+
+  // Sin autenticación — consumido por el plugin de WordPress (server-to-server,
+  // vía wp_remote_get) para renderizar el shortcode público. Solo expone lo
+  // necesario para pintar la tarjeta; nada de auditoría ni datos internos.
+  async findPublicBySlug(slug: string) {
+    const feed = await this.prisma.feed.findUniqueOrThrow({
+      where: { slug },
+      select: {
+        slug: true,
+        name: true,
+        description: true,
+        network: true,
+        status: true,
+        layoutDefault: true,
+        maxItemsDefault: true,
+        showMetrics: true,
+        showMedia: true,
+        posts: {
+          orderBy: { order: 'asc' },
+          select: {
+            post: {
+              select: {
+                network: true,
+                postId: true,
+                url: true,
+                authorHandle: true,
+                authorName: true,
+                publishedAt: true,
+                content: true,
+                mediaType: true,
+                mediaUrl: true,
+                mediaThumb: true,
+                videoDuration: true,
+                stats: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const settings = await this.settings.get();
+    const officialAccounts = (settings.officialAccounts as Record<string, { avatarUrl?: string }>) || {};
+
+    return {
+      ...feed,
+      posts: feed.posts.map((link) => ({
+        ...link,
+        post: {
+          ...link.post,
+          authorAvatarUrl: officialAccounts[link.post.network]?.avatarUrl || null,
+        },
+      })),
+    };
   }
 
   async update(id: string, dto: UpdateFeedDto, actor: { id: string; email: string; role: string }): Promise<Feed> {
@@ -196,7 +377,13 @@ export class FeedsService {
 
   async addPost(
     feedId: string,
-    input: { urlOrId: string; network: string; customContent?: string },
+    input: {
+      urlOrId: string;
+      network: string;
+      customContent?: string;
+      customMediaUrl?: string;
+      customAuthorName?: string;
+    },
     actor: { id: string; email: string; role: string },
   ) {
     const feed = await this.prisma.feed.findUniqueOrThrow({ where: { id: feedId } });
@@ -213,6 +400,16 @@ export class FeedsService {
     if (!post) {
       const settings = await this.settings.get();
       const account = (settings.officialAccounts as Record<string, { handle?: string; name?: string }>)?.[input.network];
+      const apiKeys = (settings.apiKeys as Record<string, string>) || {};
+      const oembed = input.customContent
+        ? null
+        : input.network === 'facebook'
+          ? await fetchFacebookPost(postId, apiKeys.facebook)
+          : input.network === 'x'
+            ? await fetchTwitterCard(url)
+            : await fetchOEmbed(input.network, url);
+
+      const mediaThumbOrUrl = input.customMediaUrl || oembed?.thumbnailUrl;
 
       post = await this.prisma.socialPost.create({
         data: {
@@ -220,10 +417,12 @@ export class FeedsService {
           postId,
           url,
           authorHandle: account?.handle ?? '@MinfinGT',
-          authorName: account?.name ?? 'Ministerio de Finanzas Públicas',
+          authorName: input.customAuthorName || oembed?.authorName || account?.name || 'Ministerio de Finanzas Públicas',
           publishedAt: 'Hoy · Reciente',
-          content: input.customContent || SAMPLE_CONTENT[input.network] || '',
+          content: input.customContent || oembed?.title || SAMPLE_CONTENT[input.network] || '',
           mediaType: input.network === 'youtube' ? 'video' : 'image',
+          mediaThumb: input.network === 'youtube' ? mediaThumbOrUrl : undefined,
+          mediaUrl: input.network !== 'youtube' ? mediaThumbOrUrl : undefined,
           isValidated: true,
           addedBy: actor.email,
         },
@@ -312,5 +511,26 @@ export class FeedsService {
     });
 
     return post;
+  }
+
+  // Borra la publicación por completo de la base de datos (no solo su
+  // vínculo con un feed) — la cascada quita también sus enlaces en
+  // cualquier otro feed. Útil cuando el registro quedó con contenido de
+  // muestra desactualizado: al volver a agregar la misma URL, el sistema
+  // busca de nuevo el contenido real en lugar de reutilizar el existente.
+  async deletePostPermanently(postId: string, actor: { id: string; email: string; role: string }): Promise<void> {
+    const post = await this.prisma.socialPost.delete({ where: { id: postId } });
+
+    await this.audit.log({
+      userId: actor.id,
+      userEmail: actor.email,
+      userRole: actor.role,
+      action: 'Eliminó publicación permanentemente de la base de datos',
+      module: 'Publicaciones',
+      entity: 'SocialPost',
+      entityId: postId,
+      details: { network: post.network, postId: post.postId },
+      result: 'Advertencia',
+    });
   }
 }
