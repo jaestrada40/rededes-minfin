@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -23,6 +24,7 @@ describe('AuthService', () => {
 
   const usersMock = { findByEmail: jest.fn().mockResolvedValue(userNoMfa) };
   const auditMock = { log: jest.fn() };
+  const settingsMock = { get: jest.fn().mockResolvedValue({ mfaRequired: true }) };
   const prismaMock = {
     mfaSettings: { create: jest.fn().mockResolvedValue({}), update: jest.fn() },
     user: {
@@ -47,6 +49,7 @@ describe('AuthService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: UsersService, useValue: usersMock },
         { provide: AuditService, useValue: auditMock },
+        { provide: SettingsService, useValue: settingsMock },
       ],
     }).compile();
     service = moduleRef.get(AuthService);

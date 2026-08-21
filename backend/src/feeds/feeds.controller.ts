@@ -76,4 +76,10 @@ export class FeedsController {
   updatePostContent(@Param('id') id: string, @Body() dto: UpdatePostContentDto, @Req() req: AuthedRequest) {
     return this.feeds.updatePostContent(id, dto.content, req.user);
   }
+
+  @Roles('admin')
+  @Delete('posts/:id')
+  deletePostPermanently(@Param('id') id: string, @Req() req: AuthedRequest) {
+    return this.feeds.deletePostPermanently(id, req.user);
+  }
 }

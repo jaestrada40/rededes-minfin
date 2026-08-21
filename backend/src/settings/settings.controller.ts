@@ -16,7 +16,7 @@ export class SettingsController {
   async get(@Req() req: Request & { user: { id: string; email: string; role: string } }) {
     const settings = await this.settings.get();
     if (req.user.role !== 'admin') {
-      return { ...settings, webhookSecret: undefined };
+      return { ...settings, webhookSecret: undefined, apiKeys: undefined };
     }
     return settings;
   }

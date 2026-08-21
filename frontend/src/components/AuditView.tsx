@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { 
+import { Pagination } from './Pagination';
+import {
   ShieldAlert, 
   Search, 
   Filter, 
@@ -28,6 +29,8 @@ export const AuditView: React.FC = () => {
   const [moduleFilter, setModuleFilter] = useState('all');
   const [resultFilter, setResultFilter] = useState('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const filteredLogs = auditLogs.filter(log => {
     const matchesSearch = 
@@ -43,6 +46,8 @@ export const AuditView: React.FC = () => {
 
     return matchesSearch && matchesModule && matchesResult;
   });
+
+  const paginatedLogs = filteredLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const exportToCSV = () => {
     const headers = ['ID', 'Fecha_Hora', 'Usuario', 'Correo', 'Rol', 'Accion', 'Modulo', 'Feed_Afectado', 'Portal_Afectado', 'IP', 'Resultado', 'Detalles'];
@@ -82,7 +87,7 @@ export const AuditView: React.FC = () => {
       role: 'admin' as UserRole,
       title: 'Administrador DTI',
       description: 'Acceso total a la creación/edición de feeds, asignación de portales, gestión de cuentas y auditoría.',
-      permissions: ['Crear/Editar Feeds', 'Agregar/Eliminar Publicaciones', 'Asignar a 25 Portales', 'Configuración de Servidor', 'Ver y Exportar Auditoría']
+      permissions: ['Crear/Editar Feeds', 'Agregar/Eliminar Publicaciones', 'Asignar a Portales', 'Configuración de Servidor', 'Ver y Exportar Auditoría']
     },
     {
       role: 'editor' as UserRole,
@@ -196,7 +201,7 @@ export const AuditView: React.FC = () => {
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
               placeholder="Buscar por usuario, acción, portal..."
               className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg py-2 pl-9 pr-3 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#003876] focus:bg-white"
             />
@@ -205,7 +210,7 @@ export const AuditView: React.FC = () => {
           {/* Module Filter */}
           <select
             value={moduleFilter}
-            onChange={(e) => setModuleFilter(e.target.value)}
+            onChange={(e) => { setModuleFilter(e.target.value); setPage(1); }}
             className="text-xs bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-slate-700 focus:outline-none focus:border-[#003876] cursor-pointer"
           >
             <option value="all">Todos los Módulos</option>
@@ -220,7 +225,7 @@ export const AuditView: React.FC = () => {
           {/* Result Filter */}
           <select
             value={resultFilter}
-            onChange={(e) => setResultFilter(e.target.value)}
+            onChange={(e) => { setResultFilter(e.target.value); setPage(1); }}
             className="text-xs bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-slate-700 focus:outline-none focus:border-[#003876] cursor-pointer"
           >
             <option value="all">Todos los Resultados</option>
@@ -251,14 +256,14 @@ export const AuditView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 font-sans">
-              {filteredLogs.length === 0 ? (
+              {paginatedLogs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-slate-500">
                     No se encontraron registros de auditoría con los criterios seleccionados.
                   </td>
                 </tr>
               ) : (
-                filteredLogs.map((log) => (
+                paginatedLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
                     {/* Timestamp */}
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-700 whitespace-nowrap">
@@ -343,6 +348,7 @@ export const AuditView: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} pageSize={PAGE_SIZE} total={filteredLogs.length} onPageChange={setPage} />
       </div>
     </div>
   );

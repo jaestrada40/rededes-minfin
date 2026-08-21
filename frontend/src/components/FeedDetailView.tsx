@@ -8,7 +8,8 @@ import {
   CheckCircle2, 
   ArrowUp, 
   ArrowDown, 
-  Trash2, 
+  Trash2,
+  Ban,
   Edit3, 
   Eye, 
   ExternalLink, 
@@ -30,18 +31,21 @@ interface FeedDetailViewProps {
 }
 
 export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModal }) => {
-  const { 
-    feeds, 
-    posts, 
-    selectedFeedId, 
-    setSelectedFeedId, 
-    addPost, 
-    removePostFromFeed, 
-    reorderPostsInFeed, 
-    updatePostContent, 
-    openFeedPreview, 
+  const {
+    feeds,
+    posts,
+    selectedFeedId,
+    setSelectedFeedId,
+    setActiveTab,
+    addPost,
+    removePostFromFeed,
+    deletePostPermanently,
+    reorderPostsInFeed,
+    updatePostContent,
+    openFeedPreview,
     settings,
-    user 
+    requestConfirm,
+    user
   } = useApp();
 
   const currentFeed = feeds.find(f => f.id === selectedFeedId) || feeds[0];
@@ -51,6 +55,9 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
 
   const [inputUrlOrId, setInputUrlOrId] = useState('');
   const [customText, setCustomText] = useState('');
+  const [customMediaUrl, setCustomMediaUrl] = useState('');
+  const [customAuthorName, setCustomAuthorName] = useState('');
+  const [showCustomFields, setShowCustomFields] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editContentText, setEditContentText] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -84,7 +91,7 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
     }
   };
 
-  const handleAddPostSubmit = (e: React.FormEvent) => {
+  const handleAddPostSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
@@ -93,10 +100,12 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
       return;
     }
 
-    const result = addPost(currentFeed.id, {
+    const result = await addPost(currentFeed.id, {
       urlOrId: inputUrlOrId,
       network: activeNetworkTab,
-      customContent: customText.trim() ? customText : undefined
+      customContent: customText.trim() ? customText : undefined,
+      customMediaUrl: customMediaUrl.trim() ? customMediaUrl.trim() : undefined,
+      customAuthorName: customAuthorName.trim() ? customAuthorName.trim() : undefined
     });
 
     if (!result.success) {
@@ -104,6 +113,8 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
     } else {
       setInputUrlOrId('');
       setCustomText('');
+      setCustomMediaUrl('');
+      setCustomAuthorName('');
     }
   };
 
@@ -125,11 +136,31 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
   };
 
   const handleCopyShortcode = () => {
+    if (!currentFeed) return;
     const code = `[${settings.shortcodeTag} feed="${currentFeed.slug}"]`;
     navigator.clipboard.writeText(code);
     setCopiedId('shortcode');
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  if (!currentFeed) {
+    return (
+      <div className="max-w-2xl mx-auto text-center bg-white p-10 rounded-xl border border-slate-200 shadow-xs space-y-4">
+        <Layers className="w-10 h-10 text-slate-300 mx-auto" />
+        <h2 className="text-base font-bold text-slate-800">Aún no hay feeds creados</h2>
+        <p className="text-sm text-slate-500">
+          Cree su primer feed institucional para poder registrar publicaciones aquí.
+        </p>
+        <button
+          onClick={() => setActiveTab('feeds')}
+          className="inline-flex items-center gap-2 bg-[#0072ce] hover:bg-[#005fb0] text-white font-medium px-4 py-2 rounded-lg text-sm cursor-pointer"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Ir a Gestión de Feeds</span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -324,6 +355,62 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
                 )}
               </div>
             </div>
+
+            {/* Custom content override — useful when the platform doesn't expose real data (X, Instagram, LinkedIn) */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setShowCustomFields(!showCustomFields)}
+                className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+              >
+                {showCustomFields ? '− Ocultar contenido personalizado' : '+ Pegar contenido real manualmente (texto, imagen, autor)'}
+              </button>
+
+              {showCustomFields && (
+                <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-lg grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-3">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                      Texto real de la publicación
+                    </label>
+                    <textarea
+                      value={customText}
+                      onChange={(e) => setCustomText(e.target.value)}
+                      rows={2}
+                      placeholder="Pegue aquí el texto exacto de la publicación original"
+                      className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#003876] resize-none"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                      URL de la imagen
+                    </label>
+                    <input
+                      type="text"
+                      value={customMediaUrl}
+                      onChange={(e) => setCustomMediaUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#003876] font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                      Nombre del autor
+                    </label>
+                    <input
+                      type="text"
+                      value={customAuthorName}
+                      onChange={(e) => setCustomAuthorName(e.target.value)}
+                      placeholder="Ministerio de..."
+                      className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#003876]"
+                    />
+                  </div>
+                  <p className="md:col-span-3 text-[11px] text-slate-500">
+                    Úselo cuando la red social no permita obtener el contenido real automáticamente (X, Instagram,
+                    LinkedIn). YouTube, TikTok y Facebook (con token configurado) ya lo obtienen solos.
+                  </p>
+                </div>
+              )}
+            </div>
           </form>
         </div>
       </div>
@@ -494,15 +581,33 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
 
                     {canEdit && (
                       <button
-                        onClick={() => {
-                          if (confirm(`¿Confirma eliminar la publicación ${post.postId} de este feed? Los portales WordPress se actualizarán inmediatamente.`)) {
-                            removePostFromFeed(currentFeed.id, post.id);
-                          }
+                        onClick={async () => {
+                          const ok = await requestConfirm(
+                            `¿Confirma eliminar la publicación ${post.postId} de este feed? Los portales WordPress se actualizarán inmediatamente.`,
+                            { title: 'Eliminar publicación', confirmLabel: 'Eliminar', danger: true }
+                          );
+                          if (ok) removePostFromFeed(currentFeed.id, post.id);
                         }}
                         className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded border border-slate-200 cursor-pointer"
                         title="Eliminar del feed"
                       >
                         <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+
+                    {user.role === 'admin' && (
+                      <button
+                        onClick={async () => {
+                          const ok = await requestConfirm(
+                            `¿Eliminar permanentemente la publicación ${post.postId} de la base de datos? Se quitará de todos los feeds donde esté vinculada. Úselo cuando el contenido guardado esté desactualizado — la próxima vez que agregue esta misma URL, el sistema volverá a buscar el contenido real.`,
+                            { title: 'Eliminar de la base de datos', confirmLabel: 'Eliminar permanentemente', danger: true }
+                          );
+                          if (ok) deletePostPermanently(post.id);
+                        }}
+                        className="p-1.5 text-red-800 hover:text-white hover:bg-red-700 rounded border border-red-200 cursor-pointer"
+                        title="Eliminar permanentemente de la base de datos (fuerza recarga de datos reales)"
+                      >
+                        <Ban className="w-4 h-4" />
                       </button>
                     )}
                   </div>

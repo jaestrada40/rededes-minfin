@@ -97,10 +97,13 @@ export interface UserProfile {
   department: string;
   avatar?: string;
   mfaEnabled: boolean;
+  isActive: boolean;
   lastLogin: string;
 }
 
 export interface SystemSettings {
+  logoUrl?: string;
+  apiKeys?: Record<string, string>;
   institutionName: string;
   shortcodeTag: string; // default: "minfin_social_feed"
   apiCacheDurationSeconds: number;
@@ -110,4 +113,5 @@ export interface SystemSettings {
   officialAccounts: Record<SocialNetworkType, SocialAccount>;
   contactSupportEmail: string;
   maintenanceMode: boolean;
+  mfaRequired: boolean;
 }

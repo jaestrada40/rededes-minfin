@@ -48,6 +48,14 @@ describe('FeedsService', () => {
   const auditMock = { log: jest.fn() };
   const actor = { id: 'u1', email: 'a@minfin.gob.gt', role: 'admin' };
 
+  beforeEach(() => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('network disabled in unit tests'));
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
       providers: [

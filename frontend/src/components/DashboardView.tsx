@@ -63,7 +63,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCreateModal 
             Administración y Distribución de Feeds Institucionales
           </h2>
           <p className="text-xs text-blue-100 max-w-2xl leading-relaxed">
-            Centralice las publicaciones oficiales de redes sociales (X, Facebook, Instagram, YouTube, LinkedIn) y distribúyalas de forma instantánea a los 25 portales web WordPress del MINFIN mediante shortcodes sin alterar la configuración de cada portal.
+            Centralice las publicaciones oficiales de redes sociales (X, Facebook, Instagram, YouTube, LinkedIn) y distribúyalas de forma instantánea a los portales web WordPress del MINFIN mediante shortcodes sin alterar la configuración de cada portal.
           </p>
         </div>
 
@@ -254,10 +254,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCreateModal 
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
               <div className="flex items-center gap-2 font-bold text-xs uppercase text-[#003876]">
                 <WordPressIcon size={16} />
-                <span>Red de 25 Portales MINFIN</span>
+                <span>Red de Portales MINFIN</span>
               </div>
               <span className="text-[10px] font-mono text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-bold">
-                25/25 Online
+                {connectedPortals.length}/{portals.length} Online
               </span>
             </div>
 
@@ -283,7 +283,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCreateModal 
               onClick={() => setActiveTab('portals')}
               className="w-full mt-3 text-center py-2 text-xs font-bold text-[#0072ce] hover:bg-blue-50 rounded-lg transition-colors border border-blue-200 cursor-pointer"
             >
-              Ver los 25 Portales y Asignaciones →
+              Ver Portales y Asignaciones →
             </button>
           </div>
 

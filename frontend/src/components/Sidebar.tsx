@@ -1,19 +1,20 @@
 import React from 'react';
 import { useApp, ActiveTab } from '../context/AppContext';
 import { MinfinLogo, WordPressIcon } from './OfficialLogos';
-import { 
-  LayoutDashboard, 
-  Rss, 
-  Layers, 
-  Globe, 
-  Eye, 
-  ShieldAlert, 
-  Settings, 
+import {
+  LayoutDashboard,
+  Rss,
+  Layers,
+  Globe,
+  Eye,
+  ShieldAlert,
+  Settings,
   ExternalLink,
   Copy,
   Check,
   Radio,
-  Share2
+  Share2,
+  Users
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -58,12 +59,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpenMobile, onCloseMobile })
       id: 'portals',
       label: 'Portales WordPress',
       icon: <Globe className="w-4 h-4" />,
-      badge: `${connectedPortalsCount}/25`
+      badge: `${connectedPortalsCount}/${portals.length}`
     },
     {
       id: 'preview',
       label: 'Vista Previa Embebida',
       icon: <Eye className="w-4 h-4" />
+    },
+    {
+      id: 'users',
+      label: 'Usuarios y Roles',
+      icon: <Users className="w-4 h-4" />
     },
     {
       id: 'audit',
@@ -89,14 +95,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpenMobile, onCloseMobile })
 
       <aside
         id="minfin-admin-sidebar"
-        className={`fixed lg:sticky top-0 left-0 h-screen w-72 bg-[#003876] border-r border-[#002d5e] flex flex-col justify-between text-slate-100 z-50 transition-transform duration-200 ease-in-out ${
+        className={`fixed lg:sticky top-0 left-0 h-screen w-72 bg-[#0c2a5a] border-r border-[#002d5e] flex flex-col justify-between text-slate-100 z-50 transition-transform duration-200 ease-in-out ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
         {/* Top: Institutional Brand */}
-        <div className="flex flex-col border-b border-white/10 bg-[#002754] px-4 py-4.5">
-          <div className="flex items-center justify-between">
-            <MinfinLogo variant="white" className="h-10" />
+        <div className="flex flex-col border-b border-white/10 bg-[#002754] px-4 py-5">
+          <div className="flex items-center justify-center">
+            <MinfinLogo variant="compact" className="h-24" logoUrl={settings.logoUrl} />
           </div>
           <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-[11px] text-blue-100">
             <span className="font-semibold tracking-wide uppercase">Gestor de Redes Sociales</span>
@@ -170,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpenMobile, onCloseMobile })
                 </button>
               </div>
               <p className="text-[10px] text-blue-200/80 leading-tight">
-                Péguelo en cualquier entrada, página o widget de los 25 portales.
+                Péguelo en cualquier entrada, página o widget de los portales institucionales.
               </p>
             </div>
           </div>

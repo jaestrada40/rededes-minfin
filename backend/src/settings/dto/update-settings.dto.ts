@@ -9,4 +9,7 @@ export class UpdateSettingsDto {
   @IsOptional() @IsObject() officialAccounts?: Record<string, unknown>;
   @IsOptional() @IsEmail() contactSupportEmail?: string;
   @IsOptional() @IsBoolean() maintenanceMode?: boolean;
+  @IsOptional() @IsString() logoUrl?: string;
+  @IsOptional() @IsObject() apiKeys?: Record<string, string>;
+  @IsOptional() @IsBoolean() mfaRequired?: boolean;
 }

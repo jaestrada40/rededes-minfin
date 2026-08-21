@@ -164,6 +164,9 @@ model FeedPortal {
 model SystemSettings {
   id                      String   @id @default("default")
   institutionName         String   @default("Ministerio de Finanzas Públicas")
+  logoUrl                 String?
+  apiKeys                 Json?
+  mfaRequired              Boolean  @default(true)
   shortcodeTag            String   @default("minfin_social_feed")
   apiCacheDurationSeconds Int      @default(300)
   webhookSecret           String

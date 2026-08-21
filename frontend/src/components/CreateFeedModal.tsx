@@ -86,12 +86,12 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
     e.preventDefault();
 
     if (!name.trim()) {
-      alert('Por favor ingrese un nombre para el feed.');
+      showNotification('Por favor ingrese un nombre para el feed.', 'error');
       return;
     }
 
     if (!slug.trim()) {
-      alert('Por favor ingrese un identificador (slug) válido para el shortcode.');
+      showNotification('Por favor ingrese un identificador (slug) válido para el shortcode.', 'error');
       return;
     }
 
@@ -260,7 +260,7 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
                 onClick={handleSelectAllPortals}
                 className="text-[11px] font-bold text-[#003876] hover:underline cursor-pointer"
               >
-                {assignedPortalIds.length === portals.length ? 'Desmarcar todos' : 'Seleccionar los 25 portales'}
+                {assignedPortalIds.length === portals.length ? 'Desmarcar todos' : 'Seleccionar todos los portales'}
               </button>
             </div>
 
