@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { SocialIcon, WordPressIcon } from './OfficialLogos';
 import { 
@@ -54,16 +54,33 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
   );
 
   const [inputUrlOrId, setInputUrlOrId] = useState('');
-  const [customText, setCustomText] = useState('');
-  const [customMediaUrl, setCustomMediaUrl] = useState('');
-  const [customAuthorName, setCustomAuthorName] = useState('');
-  const [showCustomFields, setShowCustomFields] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editContentText, setEditContentText] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const canEdit = user.role === 'admin' || user.role === 'editor';
+
+  // Mantiene la pestaña de red sincronizada con el feed activo: al cambiar de
+  // feed por el selector, el formulario de "agregar publicación" debe quedar
+  // apuntando a la red correcta (si no, el backend rechaza la publicación por
+  // no coincidir con la red del feed).
+  useEffect(() => {
+    if (currentFeed && currentFeed.network !== 'mixed') {
+      setActiveNetworkTab(currentFeed.network as SocialNetworkType);
+    }
+  }, [currentFeed?.id, currentFeed?.network]);
+
+  const handleNetworkTabClick = (net: SocialNetworkType) => {
+    setActiveNetworkTab(net);
+    // Si el feed actual es de una sola red, las pestañas también sirven para
+    // saltar directo al feed de esa red (si existe) — evita tener que ir al
+    // selector de arriba para ver sus publicaciones registradas.
+    if (currentFeed && currentFeed.network !== 'mixed' && currentFeed.network !== net) {
+      const matchingFeed = feeds.find(f => f.network === net);
+      if (matchingFeed) setSelectedFeedId(matchingFeed.id);
+    }
+  };
 
   // Get posts for this feed in proper sequence
   const feedPosts = (currentFeed?.postIds || [])
@@ -102,19 +119,13 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
 
     const result = await addPost(currentFeed.id, {
       urlOrId: inputUrlOrId,
-      network: activeNetworkTab,
-      customContent: customText.trim() ? customText : undefined,
-      customMediaUrl: customMediaUrl.trim() ? customMediaUrl.trim() : undefined,
-      customAuthorName: customAuthorName.trim() ? customAuthorName.trim() : undefined
+      network: activeNetworkTab
     });
 
     if (!result.success) {
       setErrorMessage(result.message);
     } else {
       setInputUrlOrId('');
-      setCustomText('');
-      setCustomMediaUrl('');
-      setCustomAuthorName('');
     }
   };
 
@@ -172,7 +183,7 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
               Detalle y Registro de Contenido
             </span>
             <span className="text-xs text-slate-500">
-              Feed ID: <span className="font-mono text-slate-700 font-semibold">{currentFeed?.slug}</span>
+              Slug: <span className="font-mono text-slate-700 font-semibold">{currentFeed?.slug}</span>
             </span>
           </div>
 
@@ -190,21 +201,8 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
           </p>
         </div>
 
-        {/* Action Controls & Feed Switcher */}
+        {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Feed Switcher Dropdown */}
-          <select
-            value={currentFeed?.id}
-            onChange={(e) => setSelectedFeedId(e.target.value)}
-            className="text-xs bg-slate-50 border border-slate-300 rounded-lg py-2 px-3 text-slate-800 font-medium focus:outline-none focus:border-[#003876] cursor-pointer"
-          >
-            {feeds.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name} ({f.postIds.length} posts)
-              </option>
-            ))}
-          </select>
-
           <button
             onClick={handleCopyShortcode}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg border border-slate-300 transition-colors cursor-pointer"
@@ -223,10 +221,18 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
 
           <button
             onClick={() => onOpenAssignModal(currentFeed.id)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-[#003876] rounded-lg border border-blue-200 transition-colors cursor-pointer"
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
+              currentFeed?.assignedPortalIds.length === 0
+                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                : 'bg-blue-50 hover:bg-blue-100 text-[#003876] border-blue-200'
+            }`}
+            title={currentFeed?.assignedPortalIds.length === 0 ? 'Este feed no está asignado a ningún portal todavía' : undefined}
           >
             <Globe className="w-3.5 h-3.5" />
             <span>Portales ({currentFeed?.assignedPortalIds.length})</span>
+            {currentFeed?.assignedPortalIds.length === 0 && (
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+            )}
           </button>
 
           <button
@@ -245,6 +251,7 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
         <div className="bg-[#003876] px-4 pt-3 flex items-center gap-1 overflow-x-auto border-b border-[#002d5e]">
           {(['x', 'facebook', 'instagram', 'youtube', 'linkedin', 'tiktok'] as SocialNetworkType[]).map((net) => {
             const isActive = activeNetworkTab === net;
+            const hasFeed = feeds.some(f => f.network === net);
             const labels: Record<SocialNetworkType, string> = {
               x: 'X (Twitter)',
               facebook: 'Facebook',
@@ -257,7 +264,8 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
             return (
               <button
                 key={net}
-                onClick={() => setActiveNetworkTab(net)}
+                onClick={() => handleNetworkTabClick(net)}
+                title={hasFeed ? `Ver feed de ${labels[net]}` : `Sin feed de ${labels[net]} todavía`}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                   isActive
                     ? 'bg-white text-[#003876] border-t-2 border-[#0072ce] shadow-xs'
@@ -266,6 +274,9 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
               >
                 <SocialIcon network={net} size={15} colored={isActive} />
                 <span>{labels[net]}</span>
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${hasFeed ? (isActive ? 'bg-emerald-500' : 'bg-emerald-400') : 'bg-white/20'}`}
+                />
               </button>
             );
           })}
@@ -356,61 +367,6 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
               </div>
             </div>
 
-            {/* Custom content override — useful when the platform doesn't expose real data (X, Instagram, LinkedIn) */}
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={() => setShowCustomFields(!showCustomFields)}
-                className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-              >
-                {showCustomFields ? '− Ocultar contenido personalizado' : '+ Pegar contenido real manualmente (texto, imagen, autor)'}
-              </button>
-
-              {showCustomFields && (
-                <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-lg grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="md:col-span-3">
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                      Texto real de la publicación
-                    </label>
-                    <textarea
-                      value={customText}
-                      onChange={(e) => setCustomText(e.target.value)}
-                      rows={2}
-                      placeholder="Pegue aquí el texto exacto de la publicación original"
-                      className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#003876] resize-none"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                      URL de la imagen
-                    </label>
-                    <input
-                      type="text"
-                      value={customMediaUrl}
-                      onChange={(e) => setCustomMediaUrl(e.target.value)}
-                      placeholder="https://..."
-                      className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#003876] font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                      Nombre del autor
-                    </label>
-                    <input
-                      type="text"
-                      value={customAuthorName}
-                      onChange={(e) => setCustomAuthorName(e.target.value)}
-                      placeholder="Ministerio de..."
-                      className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#003876]"
-                    />
-                  </div>
-                  <p className="md:col-span-3 text-[11px] text-slate-500">
-                    Úselo cuando la red social no permita obtener el contenido real automáticamente (X, Instagram,
-                    LinkedIn). YouTube, TikTok y Facebook (con token configurado) ya lo obtienen solos.
-                  </p>
-                </div>
-              )}
-            </div>
           </form>
         </div>
       </div>

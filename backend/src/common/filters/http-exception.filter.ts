@@ -25,6 +25,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
         });
         return;
       }
+      if (exception.code === 'P2003') {
+        response.status(HttpStatus.BAD_REQUEST).json({
+          statusCode: HttpStatus.BAD_REQUEST,
+          error: 'BadRequestException',
+          message: 'Uno o más de los identificadores referenciados no existe.',
+        });
+        return;
+      }
     }
 
     const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;

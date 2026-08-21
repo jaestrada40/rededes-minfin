@@ -21,6 +21,7 @@ export interface SocialPost {
   url: string; // Full original URL
   authorHandle: string;
   authorName: string;
+  authorAvatarUrl?: string | null;
   publishedAt: string;
   content: string;
   mediaType: 'text' | 'image' | 'video' | 'album' | 'carousel';
@@ -65,9 +66,6 @@ export interface WordPressPortal {
   domain: string; // e.g. "minfin.gob.gt"
   category: 'Institucional' | 'Transparencia' | 'Finanzas' | 'Sistemas' | 'Direcciones';
   connectionStatus: 'connected' | 'syncing' | 'warning' | 'error';
-  ipAddress: string;
-  wpVersion: string;
-  pluginVersion: string;
   lastSyncAt: string;
   tokenValid: boolean;
   webhookEnabled: boolean;

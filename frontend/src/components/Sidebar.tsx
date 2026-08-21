@@ -1,6 +1,5 @@
 import React from 'react';
 import { useApp, ActiveTab } from '../context/AppContext';
-import { MinfinLogo, WordPressIcon } from './OfficialLogos';
 import {
   LayoutDashboard,
   Rss,
@@ -9,11 +8,7 @@ import {
   Eye,
   ShieldAlert,
   Settings,
-  ExternalLink,
-  Copy,
-  Check,
   Radio,
-  Share2,
   Users
 } from 'lucide-react';
 
@@ -22,72 +17,47 @@ interface SidebarProps {
   onCloseMobile?: () => void;
 }
 
+const MfLogo: React.FC<{ small?: boolean; logoUrl?: string }> = ({ small = false, logoUrl }) => {
+  if (logoUrl) {
+    return (
+      <img
+        src={logoUrl}
+        alt="Logo institucional"
+        className={`${small ? 'w-10 h-10' : 'w-16 h-16'} object-contain rounded-[10px] shrink-0`}
+      />
+    );
+  }
+  return (
+    <div
+      className={`grid place-items-center shrink-0 ${small ? 'w-10 h-10 text-base' : 'w-16 h-16 text-2xl'} border-2 border-[#c99a43] rounded-[10px] text-white font-extrabold tracking-[-0.07em] bg-[#04183a]/35`}
+    >
+      MF
+    </div>
+  );
+};
+
 export const Sidebar: React.FC<SidebarProps> = ({ isOpenMobile, onCloseMobile }) => {
-  const { activeTab, setActiveTab, feeds, portals, settings, selectedFeedId } = useApp();
-  const [copiedShortcode, setCopiedShortcode] = React.useState(false);
+  const { activeTab, setActiveTab, feeds, portals, settings } = useApp();
 
   const activeFeedsCount = feeds.filter(f => f.status === 'active').length;
   const connectedPortalsCount = portals.filter(p => p.connectionStatus === 'connected').length;
 
-  const currentFeed = feeds.find(f => f.id === selectedFeedId) || feeds[0];
-  const sampleShortcode = `[${settings.shortcodeTag} feed="${currentFeed?.slug || 'x-comunicados'}"]`;
-
-  const copyShortcode = () => {
-    navigator.clipboard.writeText(sampleShortcode);
-    setCopiedShortcode(true);
-    setTimeout(() => setCopiedShortcode(false), 2000);
-  };
-
   const navItems: { id: ActiveTab; label: string; icon: React.ReactNode; badge?: string | number }[] = [
-    {
-      id: 'dashboard',
-      label: 'Panel Principal',
-      icon: <LayoutDashboard className="w-4 h-4" />
-    },
-    {
-      id: 'feeds',
-      label: 'Gestión de Feeds',
-      icon: <Rss className="w-4 h-4" />,
-      badge: activeFeedsCount
-    },
-    {
-      id: 'feed-detail',
-      label: 'Registro de Publicaciones',
-      icon: <Layers className="w-4 h-4" />
-    },
-    {
-      id: 'portals',
-      label: 'Portales WordPress',
-      icon: <Globe className="w-4 h-4" />,
-      badge: `${connectedPortalsCount}/${portals.length}`
-    },
-    {
-      id: 'preview',
-      label: 'Vista Previa Embebida',
-      icon: <Eye className="w-4 h-4" />
-    },
-    {
-      id: 'users',
-      label: 'Usuarios y Roles',
-      icon: <Users className="w-4 h-4" />
-    },
-    {
-      id: 'audit',
-      label: 'Auditoría y Trazabilidad',
-      icon: <ShieldAlert className="w-4 h-4" />
-    },
-    {
-      id: 'settings',
-      label: 'Configuración DTI',
-      icon: <Settings className="w-4 h-4" />
-    }
+    { id: 'dashboard', label: 'Panel Principal', icon: <LayoutDashboard className="w-5 h-5" /> },
+    { id: 'feeds', label: 'Gestión de Feeds', icon: <Rss className="w-5 h-5" />, badge: activeFeedsCount },
+    { id: 'feed-detail', label: 'Registro de Publicaciones', icon: <Layers className="w-5 h-5" /> },
+    { id: 'portals', label: 'Portales WordPress', icon: <Globe className="w-5 h-5" />, badge: `${connectedPortalsCount}/${portals.length}` },
+    { id: 'preview', label: 'Vista Previa Embebida', icon: <Eye className="w-5 h-5" /> },
+    { id: 'users', label: 'Usuarios y Roles', icon: <Users className="w-5 h-5" /> },
+    { id: 'audit', label: 'Auditoría y Trazabilidad', icon: <ShieldAlert className="w-5 h-5" /> },
+    { id: 'settings', label: 'Configuración DTI', icon: <Settings className="w-5 h-5" /> }
   ];
 
   return (
     <>
       {/* Mobile Backdrop */}
       {isOpenMobile && (
-        <div 
+        <div
           onClick={onCloseMobile}
           className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-xs"
         />
@@ -95,111 +65,78 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpenMobile, onCloseMobile })
 
       <aside
         id="minfin-admin-sidebar"
-        className={`fixed lg:sticky top-0 left-0 h-screen w-72 bg-[#0c2a5a] border-r border-[#002d5e] flex flex-col justify-between text-slate-100 z-50 transition-transform duration-200 ease-in-out ${
+        className={`fixed lg:sticky top-0 left-0 h-screen w-80 flex flex-col text-[#f4f8ff] bg-[#0c2a5a] shadow-[2px_0_16px_rgba(3,18,45,0.12)] z-50 transition-transform duration-200 ease-in-out overflow-y-auto ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        {/* Top: Institutional Brand */}
-        <div className="flex flex-col border-b border-white/10 bg-[#002754] px-4 py-5">
-          <div className="flex items-center justify-center">
-            <MinfinLogo variant="compact" className="h-24" logoUrl={settings.logoUrl} />
-          </div>
-          <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-[11px] text-blue-100">
-            <span className="font-semibold tracking-wide uppercase">Gestor de Redes Sociales</span>
-            <span className="flex items-center gap-1 text-[10px] text-emerald-300 bg-emerald-950/60 px-1.5 py-0.5 rounded-full border border-emerald-500/30">
-              <Radio className="w-2.5 h-2.5 animate-pulse" /> Sincronizado
-            </span>
-          </div>
-        </div>
-
-        {/* Center: Navigation Links */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-blue-200/80 px-3 mb-2">
-            Módulos Administrativos
-          </div>
-
-          {navItems.map((item) => {
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                id={`nav-btn-${item.id}`}
-                onClick={() => {
-                  setActiveTab(item.id);
-                  if (onCloseMobile) onCloseMobile();
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-[#0072ce] text-white shadow-sm font-semibold'
-                    : 'text-blue-100 hover:bg-[#002d5e] hover:text-white'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className={isActive ? 'text-white' : 'text-blue-200'}>
-                    {item.icon}
-                  </span>
-                  <span>{item.label}</span>
-                </div>
-                {item.badge !== undefined && (
-                  <span
-                    className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full ${
-                      isActive
-                        ? 'bg-white/20 text-white'
-                        : 'bg-[#002754] text-blue-200'
-                    }`}
-                  >
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-
-          {/* Quick WordPress Shortcode Box */}
-          <div className="mt-6 pt-4 border-t border-white/10">
-            <div className="p-3 bg-[#002754] rounded-lg border border-white/10 text-xs space-y-2">
-              <div className="flex items-center justify-between text-[11px] text-blue-100">
-                <div className="flex items-center gap-1.5 font-semibold">
-                  <WordPressIcon size={14} className="text-blue-300" />
-                  <span>Shortcode Activo</span>
-                </div>
-                <span className="text-[10px] text-blue-200 font-mono">WordPress</span>
-              </div>
-              <div className="p-1.5 bg-[#001c3d] rounded border border-blue-900/50 text-[11px] font-mono text-emerald-300 break-all select-all flex items-center justify-between gap-1">
-                <span>{sampleShortcode}</span>
-                <button
-                  onClick={copyShortcode}
-                  title="Copiar shortcode"
-                  className="p-1 text-blue-200 hover:text-white rounded hover:bg-white/10 cursor-pointer shrink-0"
-                >
-                  {copiedShortcode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-              <p className="text-[10px] text-blue-200/80 leading-tight">
-                Péguelo en cualquier entrada, página o widget de los portales institucionales.
-              </p>
+        {/* Header */}
+        <header
+          className="relative flex items-center gap-4 min-h-[164px] px-6 py-7 border-b border-[#c7daf8]/20 shrink-0"
+          style={{ background: 'linear-gradient(135deg, #103a73, #0c2a5a 65%)' }}
+        >
+          <div
+            className="absolute right-0 top-0 w-[48%] h-full opacity-10 pointer-events-none"
+            style={{ background: 'repeating-linear-gradient(135deg, transparent 0 27px, #d9e9ff 28px 29px, transparent 30px 58px)' }}
+          />
+          <div className="relative z-10 flex items-center gap-4">
+            <MfLogo logoUrl={settings.logoUrl} />
+            <div>
+              <h1 className="m-0 mb-2 text-[1.38rem] font-bold leading-[1.1] tracking-[-0.035em]">
+                Gestor de<br />Redes Sociales
+              </h1>
+              <span className="inline-flex items-center gap-1.5 text-[#7fe2aa] text-[0.76rem] font-bold">
+                <Radio className="w-3 h-3 animate-pulse" /> Sincronizado
+              </span>
             </div>
           </div>
-        </div>
+        </header>
 
-        {/* Bottom: Institutional Footer & Portal Link */}
-        <div className="p-3 border-t border-white/10 bg-[#002754] text-[11px] text-blue-200 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-blue-300 text-[10px]">Versión 2.4.1-prod</span>
-            <a
-              href="https://www.minfin.gob.gt"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 text-blue-300 hover:text-white transition-colors text-[10px]"
-            >
-              <span>minfin.gob.gt</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
-          <div className="text-[10px] text-blue-300/80 border-t border-white/10 pt-1.5 leading-tight">
-            © 2026 Ministerio de Finanzas Públicas
-          </div>
-        </div>
+        {/* Navigation */}
+        <nav className="px-4 pt-7 pb-3 flex-1" aria-label="Módulos administrativos">
+          <p className="mx-2.5 mb-3.5 text-[#a8bddc] text-[0.68rem] font-extrabold tracking-[0.14em] uppercase">
+            Módulos administrativos
+          </p>
+          <ul className="grid gap-0.5 m-0 p-0 list-none">
+            {navItems.map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <li key={item.id}>
+                  <button
+                    id={`nav-btn-${item.id}`}
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      if (onCloseMobile) onCloseMobile();
+                    }}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`relative flex items-center gap-3.5 w-full min-h-[43px] px-2.5 rounded-lg text-left text-[0.88rem] cursor-pointer transition-colors ${
+                      isActive
+                        ? 'text-white font-bold bg-[#194881] shadow-[inset_3px_0_0_#c99a43]'
+                        : 'text-[#dce8fb] hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <span className="w-5 h-5 shrink-0">{item.icon}</span>
+                    <span className="min-w-0 flex-1">{item.label}</span>
+                    {item.badge !== undefined && (
+                      <b
+                        className={`min-w-[26px] px-1.5 py-0.5 rounded-lg text-[0.69rem] font-extrabold text-center not-italic ${
+                          isActive ? 'bg-white/15 text-[#e7f0ff]' : 'bg-[#031a42]/40 text-[#e7f0ff]'
+                        }`}
+                      >
+                        {item.badge}
+                      </b>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        {/* Footer */}
+        <footer className="grid gap-1.5 mt-auto px-6 py-4 border-t border-[#c7daf8]/20 bg-[#081f45] text-[#a8bddc] text-[0.66rem] leading-relaxed shrink-0">
+          <span>Versión 2.4.1-prod</span>
+          <span>© 2026 Ministerio de Finanzas Públicas</span>
+        </footer>
       </aside>
     </>
   );

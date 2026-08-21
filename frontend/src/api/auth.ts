@@ -5,6 +5,8 @@ export interface LoginResult {
   requiresMfaCode?: true;
   setupToken?: string;
   challengeToken?: string;
+  accessToken?: string;
+  refreshToken?: string;
 }
 
 export interface MfaSetupResult {
@@ -33,21 +35,36 @@ export function mfaVerify(token: string, code: string): Promise<TokenPair> {
   return apiPost<TokenPair>('/auth/mfa/verify', { token, code });
 }
 
-export async function restoreSession(): Promise<TokenPair | null> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return null;
-  try {
-    const tokens = await apiFetch<TokenPair>('/auth/refresh', {
-      method: 'POST',
-      body: JSON.stringify({ refreshToken }),
-    }, false);
-    applyTokens(tokens);
-    return tokens;
-  } catch {
-    setAccessToken(null);
-    setRefreshToken(null);
-    return null;
-  }
+// Deduplicado a nivel de módulo: en desarrollo, React.StrictMode monta el
+// árbol dos veces, invocando este efecto dos veces. Sin este guard, la
+// segunda llamada reutilizaría un refresh token que la primera ya rotó,
+// disparando la detección de reutilización del backend y revocando toda la
+// sesión recién creada.
+let restoreSessionPromise: Promise<TokenPair | null> | null = null;
+
+export function restoreSession(): Promise<TokenPair | null> {
+  if (restoreSessionPromise) return restoreSessionPromise;
+
+  restoreSessionPromise = (async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return null;
+    try {
+      const tokens = await apiFetch<TokenPair>('/auth/refresh', {
+        method: 'POST',
+        body: JSON.stringify({ refreshToken }),
+      }, false);
+      applyTokens(tokens);
+      return tokens;
+    } catch {
+      setAccessToken(null);
+      setRefreshToken(null);
+      return null;
+    } finally {
+      restoreSessionPromise = null;
+    }
+  })();
+
+  return restoreSessionPromise;
 }
 
 export function applyTokens(tokens: TokenPair): void {

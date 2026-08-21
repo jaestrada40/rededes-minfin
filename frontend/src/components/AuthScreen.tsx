@@ -1,12 +1,60 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { MinfinLogo } from './OfficialLogos';
-import { ShieldCheck, Lock, Mail, KeyRound, AlertCircle, ArrowRight, CheckCircle2, RefreshCw } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, KeyRound, AlertCircle, ArrowRight, CheckCircle2, RefreshCw, Eye, EyeOff } from 'lucide-react';
 
 type Step = 'login' | 'mfa-setup' | 'mfa-verify';
 
+// Escudo institucional del gestor. Deliberadamente NO usa settings.logoUrl:
+// el logo real subido en Configuración es un sello delgado que se ve mal a
+// estos tamaños (probado, se veía roto/diminuto); este SVG siempre se ve
+// nítido, en grande o en las versiones pequeñas del badge/footer.
+const ShieldIcon: React.FC<{ small?: boolean; className?: string }> = ({ small = false, className = '' }) => (
+  <svg
+    viewBox="0 0 64 72"
+    fill="none"
+    className={`${small ? 'w-[30px] h-[34px]' : 'w-[150px] h-[168px]'} shrink-0 ${className}`}
+    aria-hidden="true"
+  >
+    <path
+      d="M32 3 57 12v20c0 17.2-10.5 29.7-25 37C17.5 61.7 7 49.2 7 32V12L32 3Z"
+      fill="rgba(7,28,64,0.2)"
+      stroke="#c99a43"
+      strokeWidth="2.4"
+    />
+    <text x="32" y="41" textAnchor="middle" fill="#fff" fontSize="22" fontWeight="800">MF</text>
+  </svg>
+);
+
+// Ilustración decorativa del edificio institucional del MINFIN (Centro Cívico),
+// de fondo en el panel de marca — se ve tanto en login como en los pasos de MFA
+// porque comparten el mismo panel.
+const CivicBuilding: React.FC = () => (
+  <svg
+    className="absolute pointer-events-none text-[#b5cbe9] opacity-[0.18] w-[min(850px,121%)] h-auto -left-[29%] -bottom-[19%] max-lg:w-[740px] max-lg:left-1/2 max-lg:-translate-x-1/2 max-lg:bottom-[-42%]"
+    viewBox="0 0 760 760"
+    aria-hidden="true"
+    fill="none"
+  >
+    <g stroke="currentColor" strokeWidth="2">
+      <path d="M35 682h690M78 651h604M111 620h538M148 592h464" />
+      <path d="M150 592V301h460v291M190 592V348h380v244M226 592V390h308v202" />
+      <path d="M126 301h508L380 126 126 301ZM182 288l198-133 198 133" />
+      <path d="M323 590V448h114v142M347 590V478h66v112M296 438h168M210 438h76M474 438h76" />
+      <path d="M232 410v-70h48v70M480 410v-70h48v70M260 592V470h55v122M445 592V470h55v122" />
+      <path d="M80 620v-88h70v88M610 620v-88h70v88" />
+      <path d="M365 126V73h30v53M350 73h60M356 59h48" />
+      <path d="M110 651V620M650 651V620M155 651V620M605 651V620" />
+    </g>
+    <g stroke="currentColor" strokeWidth="1.2" opacity=".72">
+      <path d="M0 690 155 535M0 563l120-120M760 704 584 528M760 578l-114-114" />
+      <circle cx="104" cy="210" r="44" /><circle cx="656" cy="210" r="44" />
+      <path d="M60 210h88M104 166v88M612 210h88M656 166v88" />
+    </g>
+  </svg>
+);
+
 export const AuthScreen: React.FC = () => {
-  const { login, mfaSetupBegin, mfaSetupComplete, mfaVerifyCode, authError, settings } = useApp();
+  const { login, mfaSetupBegin, mfaSetupComplete, mfaVerifyCode, authError } = useApp();
 
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -14,6 +62,7 @@ export const AuthScreen: React.FC = () => {
   const [step, setStep] = useState<Step>('login');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [showPassword, setShowPassword] = useState<boolean>(false);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,240 +94,260 @@ export const AuthScreen: React.FC = () => {
     setLoading(false);
   };
 
+  const stepCopy: Record<Step, { title: string; subtitle: string }> = {
+    login: { title: 'Bienvenido', subtitle: 'Ingrese con sus credenciales institucionales.' },
+    'mfa-setup': { title: 'Configure su MFA', subtitle: 'Escanee el código y confirme con su app de autenticación.' },
+    'mfa-verify': { title: 'Verificación en dos pasos', subtitle: 'Ingrese el código de su app de autenticación.' }
+  };
+
   return (
-    <div className="min-h-screen bg-[#081726] flex flex-col justify-between items-center text-slate-100 p-4 sm:p-6 relative overflow-hidden font-sans">
-      {/* Background Subtle Institutional Grid & Watermark */}
-      <div className="absolute inset-0 bg-[radial-gradient(#1e3a5f_1px,transparent_1px)] [background-size:24px_24px] opacity-25 pointer-events-none" />
-      <div className="absolute -top-32 -right-32 w-96 h-96 bg-[#0072ce]/15 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-32 -left-32 w-96 h-96 bg-[#0c2340]/60 rounded-full blur-3xl pointer-events-none" />
-
-      {/* Top Banner with official badge */}
-      <header className="w-full max-w-5xl flex items-center justify-between py-2 border-b border-slate-800/80 z-10">
-        <div className="flex items-center gap-2 text-xs text-slate-400">
-          <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Acceso Seguro Restringido · Red Gubernamental MINFIN</span>
+    <main className="min-h-screen grid grid-cols-1 lg:grid-cols-[minmax(380px,42%)_1fr] bg-white font-sans text-[#102754]">
+      {/* Brand panel */}
+      <section
+        aria-label="Ministerio de Finanzas Públicas"
+        className="relative overflow-hidden grid place-items-center p-8 sm:p-12 lg:p-16 text-white min-h-[280px] lg:min-h-0"
+        style={{ background: 'linear-gradient(145deg, #123f7c 0%, #0c2a5a 56%, #071c40 100%)' }}
+      >
+        <div
+          className="absolute inset-0 opacity-20 pointer-events-none"
+          style={{
+            backgroundImage:
+              'linear-gradient(135deg, transparent 47%, rgba(255,255,255,.15) 48%, transparent 49%), linear-gradient(45deg, transparent 47%, rgba(255,255,255,.09) 48%, transparent 49%)',
+            backgroundSize: '185px 185px'
+          }}
+        />
+        <CivicBuilding />
+        <div className="relative z-[1] w-full max-w-[500px] text-center lg:text-left">
+          <ShieldIcon className="mx-auto lg:mx-0" />
+          <p className="mt-6 sm:mt-10 mb-3 sm:mb-4 font-bold text-xs sm:text-[0.84rem] tracking-[0.15em] uppercase text-white">
+            Ministerio de Finanzas Públicas
+          </p>
+          <h1 className="m-0 font-extrabold leading-[0.98] tracking-[-0.055em] text-[2.55rem] sm:text-[3.5rem] lg:text-[4.75rem]">
+            Gestor<br />Centralizado
+          </h1>
+          <span className="block w-12 h-[3px] my-5 sm:my-7 mx-auto lg:mx-0 rounded-full bg-[#c99a43]" />
+          <p className="max-w-[380px] mx-auto lg:mx-0 text-[0.93rem] sm:text-[1.08rem] leading-relaxed text-white/90">
+            Plataforma institucional para la gestión de redes sociales.
+          </p>
         </div>
-        <div className="text-xs text-slate-400 font-mono">
-          TLS 1.3
-        </div>
-      </header>
+      </section>
 
-      {/* Main Authentication Card */}
-      <div className="w-full max-w-md my-auto py-6 z-10">
-        <div className="bg-[#0f243a] border border-slate-700/60 rounded-xl shadow-2xl overflow-hidden backdrop-blur-sm">
-          {/* Card Header with Logo */}
-          <div className="bg-[#0c1e30] border-b border-slate-700/60 px-6 py-6 text-center">
-            <div className="flex justify-center mb-3">
-              <MinfinLogo variant="compact" className="h-20" logoUrl={settings.logoUrl} />
-            </div>
-            <h1 className="text-base font-bold text-white tracking-tight uppercase">
-              Gestor Centralizado de Redes Sociales
-            </h1>
-            <p className="text-xs text-blue-300/80 mt-1">
-              Dirección de Tecnologías de la Información (DTI)
+      {/* Access panel */}
+      <section className="flex flex-col min-w-0 bg-white">
+        <div className="flex flex-1 w-[calc(100%-2.5rem)] sm:w-[min(100%-3rem,510px)] mx-auto py-10 sm:py-16 lg:py-[clamp(48px,10vh,120px)] flex-col justify-center">
+          <div className="flex items-center gap-2.5 w-max max-w-full px-3.5 py-2.5 border border-[#d9e0eb] rounded-[9px] text-[#42547a] text-[0.84rem] font-semibold">
+            <ShieldIcon small />
+            <span>Acceso seguro · Red Gubernamental MINFIN</span>
+          </div>
+
+          <header className="my-8 sm:my-14 text-center lg:text-left">
+            <h2 className="m-0 mb-2.5 font-extrabold tracking-[-0.05em] text-[2.35rem] sm:text-[3.25rem]">
+              {stepCopy[step].title}
+            </h2>
+            <p className="m-0 text-[#627292] text-[0.94rem] sm:text-[1.03rem]">
+              {stepCopy[step].subtitle}
             </p>
-          </div>
+          </header>
 
-          {/* Form Step */}
-          <div className="p-6">
-            {authError && (
-              <div className="mb-4 p-3 rounded-lg bg-red-950/60 border border-red-500/40 text-red-200 text-xs flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                <span>{authError}</span>
+          {authError && (
+            <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          {step === 'login' && (
+            <form onSubmit={handleLoginSubmit} className="grid gap-2.5">
+              <label htmlFor="email" className="mt-2.5 font-bold text-[0.92rem]">Correo institucional</label>
+              <div className="relative flex items-center h-[58px] sm:h-[62px] border border-[#d9e0eb] rounded-[9px] bg-white transition-colors focus-within:border-[#2c5b9f] focus-within:ring-4 focus-within:ring-[#0c2a5a]/10">
+                <Mail className="w-5 h-5 ml-4 mr-3 text-[#61769e] shrink-0" strokeWidth={1.7} />
+                <input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="usuario@minfin.gob.gt"
+                  autoComplete="email"
+                  className="w-full h-full min-w-0 border-0 outline-none text-[#102754] text-sm bg-transparent placeholder:text-[#8c9ab4] pr-4"
+                />
               </div>
-            )}
 
-            {step === 'login' && (
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                    Correo Institucional
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="usuario@minfin.gob.gt"
-                      className="w-full bg-[#081726] border border-slate-600 rounded-lg py-2.5 pl-10 pr-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-                    />
-                  </div>
-                  <span className="text-[11px] text-slate-400 mt-1 block">
-                    Solo cuentas oficiales @minfin.gob.gt autorizadas.
-                  </span>
-                </div>
+              <label htmlFor="password" className="mt-2.5 font-bold text-[0.92rem]">Contraseña única DTI</label>
+              <div className="relative flex items-center h-[58px] sm:h-[62px] border border-[#d9e0eb] rounded-[9px] bg-white transition-colors focus-within:border-[#2c5b9f] focus-within:ring-4 focus-within:ring-[#0c2a5a]/10">
+                <Lock className="w-5 h-5 ml-4 mr-3 text-[#61769e] shrink-0" strokeWidth={1.7} />
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Ingrese su contraseña"
+                  autoComplete="current-password"
+                  className="w-full h-full min-w-0 border-0 outline-none text-[#102754] text-sm bg-transparent placeholder:text-[#8c9ab4]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="grid place-items-center w-[52px] sm:w-[58px] h-full text-[#61769e] cursor-pointer shrink-0"
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" strokeWidth={1.8} /> : <Eye className="w-5 h-5" strokeWidth={1.8} />}
+                </button>
+              </div>
 
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                    Contraseña Única DTI
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••••••"
-                      className="w-full bg-[#081726] border border-slate-600 rounded-lg py-2.5 pl-10 pr-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 bg-[#0072ce] hover:bg-[#005fb0] active:bg-[#004f93] text-white font-medium py-2.5 px-4 rounded-lg transition-colors shadow-md text-sm cursor-pointer disabled:opacity-50"
-                  >
-                    {loading ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Validando credenciales...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Continuar</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {step === 'mfa-setup' && (
-              <form onSubmit={handleMfaSetupSubmit} className="space-y-4">
-                <div className="p-3 bg-blue-950/40 border border-blue-800/50 rounded-lg text-xs text-blue-200">
-                  <div className="flex items-center gap-2 font-semibold text-blue-300 mb-1">
-                    <ShieldCheck className="w-4 h-4 text-blue-400" />
-                    <span>Configuración inicial de MFA</span>
-                  </div>
-                  <p>
-                    Escanee el código QR con su aplicación de autenticación (Google Authenticator, Authy) y luego ingrese el código de 6 dígitos generado.
-                  </p>
-                </div>
-
-                {qrDataUrl && (
-                  <div className="flex justify-center">
-                    <img src={qrDataUrl} alt="Código QR de configuración MFA" className="rounded-lg border border-slate-600 bg-white p-2 w-48 h-48" />
-                  </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex items-center justify-center gap-3 h-[58px] sm:h-[62px] mt-5 border border-[#0c2a5a] rounded-[9px] text-white font-bold text-sm cursor-pointer bg-[#0c2a5a] shadow-[0_10px_18px_rgba(12,42,90,0.17)] transition-all hover:bg-[#163c78] hover:-translate-y-px disabled:opacity-50 disabled:hover:translate-y-0"
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Validando credenciales...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Ingresar</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
                 )}
+              </button>
+            </form>
+          )}
 
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                    Código de 6 Dígitos
-                  </label>
-                  <div className="relative">
-                    <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      maxLength={6}
-                      required
-                      value={mfaCode}
-                      onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9]/g, ''))}
-                      placeholder="000000"
-                      className="w-full bg-[#081726] border border-slate-600 rounded-lg py-2.5 pl-10 pr-3 text-center text-lg font-mono tracking-widest text-emerald-400 font-bold placeholder:text-slate-600 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400"
-                    />
-                  </div>
+          {step === 'mfa-setup' && (
+            <form onSubmit={handleMfaSetupSubmit} className="grid gap-4">
+              <div className="p-3.5 bg-[#edf3ff] border border-[#d9e0eb] rounded-lg text-xs text-[#1e4c99]">
+                <div className="flex items-center gap-2 font-bold mb-1">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Configuración inicial de MFA</span>
                 </div>
+                <p className="text-[#42547a]">
+                  Escanee el código QR con su aplicación de autenticación (Google Authenticator, Authy) y luego ingrese el código de 6 dígitos generado.
+                </p>
+              </div>
 
-                <div className="pt-2">
-                  <button
-                    type="submit"
-                    disabled={loading || mfaCode.length !== 6}
-                    className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-medium py-2.5 px-4 rounded-lg transition-colors shadow-md text-sm cursor-pointer disabled:opacity-50"
-                  >
-                    {loading ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Verificando token seguro...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Confirmar y Acceder al Panel</span>
-                      </>
-                    )}
-                  </button>
+              {qrDataUrl && (
+                <div className="flex justify-center">
+                  <img src={qrDataUrl} alt="Código QR de configuración MFA" className="rounded-lg border border-[#d9e0eb] bg-white p-2 w-48 h-48" />
                 </div>
-              </form>
-            )}
+              )}
 
-            {step === 'mfa-verify' && (
-              <form onSubmit={handleMfaVerifySubmit} className="space-y-4">
-                <div className="p-3 bg-blue-950/40 border border-blue-800/50 rounded-lg text-xs text-blue-200">
-                  <div className="flex items-center gap-2 font-semibold text-blue-300 mb-1">
-                    <ShieldCheck className="w-4 h-4 text-blue-400" />
-                    <span>Autenticación de Dos Factores (MFA)</span>
-                  </div>
-                  <p>
-                    Ingrese el código de 6 dígitos de su aplicación de autenticación.
-                  </p>
+              <div>
+                <label className="block font-bold text-[0.92rem] mb-1.5">Código de 6 dígitos</label>
+                <div className="relative flex items-center h-[58px] sm:h-[62px] border border-[#d9e0eb] rounded-[9px] bg-white transition-colors focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10">
+                  <KeyRound className="w-5 h-5 ml-4 mr-3 text-[#61769e] shrink-0" strokeWidth={1.7} />
+                  <input
+                    type="text"
+                    maxLength={6}
+                    required
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="000000"
+                    className="w-full h-full min-w-0 border-0 outline-none text-center text-lg font-mono tracking-widest text-emerald-700 font-bold bg-transparent placeholder:text-slate-300 pr-4"
+                  />
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                    Código de 6 Dígitos
-                  </label>
-                  <div className="relative">
-                    <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      maxLength={6}
-                      required
-                      value={mfaCode}
-                      onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9]/g, ''))}
-                      placeholder="000000"
-                      className="w-full bg-[#081726] border border-slate-600 rounded-lg py-2.5 pl-10 pr-3 text-center text-lg font-mono tracking-widest text-emerald-400 font-bold placeholder:text-slate-600 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400"
-                    />
-                  </div>
+              <button
+                type="submit"
+                disabled={loading || mfaCode.length !== 6}
+                className="flex items-center justify-center gap-2 h-[58px] sm:h-[62px] border border-emerald-600 rounded-[9px] text-white font-bold text-sm cursor-pointer bg-emerald-600 shadow-[0_10px_18px_rgba(4,120,87,0.17)] transition-all hover:bg-emerald-700 hover:-translate-y-px disabled:opacity-50 disabled:hover:translate-y-0"
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Verificando token seguro...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Confirmar y acceder al panel</span>
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          {step === 'mfa-verify' && (
+            <form onSubmit={handleMfaVerifySubmit} className="grid gap-4">
+              <div className="p-3.5 bg-[#edf3ff] border border-[#d9e0eb] rounded-lg text-xs text-[#1e4c99]">
+                <div className="flex items-center gap-2 font-bold mb-1">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Autenticación de dos factores (MFA)</span>
                 </div>
+                <p className="text-[#42547a]">
+                  Ingrese el código de 6 dígitos de su aplicación de autenticación.
+                </p>
+              </div>
 
-                <div className="pt-2 space-y-2">
-                  <button
-                    type="submit"
-                    disabled={loading || mfaCode.length !== 6}
-                    className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-medium py-2.5 px-4 rounded-lg transition-colors shadow-md text-sm cursor-pointer disabled:opacity-50"
-                  >
-                    {loading ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Verificando token seguro...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Acceder al Panel de Control</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setStep('login')}
-                    className="w-full text-center text-xs text-slate-400 hover:text-slate-200 py-1.5 cursor-pointer"
-                  >
-                    ← Volver a ingresar correo institucional
-                  </button>
+              <div>
+                <label className="block font-bold text-[0.92rem] mb-1.5">Código de 6 dígitos</label>
+                <div className="relative flex items-center h-[58px] sm:h-[62px] border border-[#d9e0eb] rounded-[9px] bg-white transition-colors focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10">
+                  <KeyRound className="w-5 h-5 ml-4 mr-3 text-[#61769e] shrink-0" strokeWidth={1.7} />
+                  <input
+                    type="text"
+                    maxLength={6}
+                    required
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="000000"
+                    className="w-full h-full min-w-0 border-0 outline-none text-center text-lg font-mono tracking-widest text-emerald-700 font-bold bg-transparent placeholder:text-slate-300 pr-4"
+                  />
                 </div>
-              </form>
-            )}
+              </div>
+
+              <div className="grid gap-2">
+                <button
+                  type="submit"
+                  disabled={loading || mfaCode.length !== 6}
+                  className="flex items-center justify-center gap-2 h-[58px] sm:h-[62px] border border-emerald-600 rounded-[9px] text-white font-bold text-sm cursor-pointer bg-emerald-600 shadow-[0_10px_18px_rgba(4,120,87,0.17)] transition-all hover:bg-emerald-700 hover:-translate-y-px disabled:opacity-50 disabled:hover:translate-y-0"
+                >
+                  {loading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Verificando token seguro...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Acceder al panel de control</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setStep('login')}
+                  className="text-center text-xs text-[#627292] hover:text-[#102754] py-1.5 cursor-pointer"
+                >
+                  ← Volver a ingresar correo institucional
+                </button>
+              </div>
+            </form>
+          )}
+
+          <a
+            className="self-center mt-8 text-[#174894] font-bold text-[0.94rem] no-underline hover:underline"
+            href="mailto:soporte.dti@minfin.gob.gt"
+          >
+            ¿Necesita ayuda?
+          </a>
+        </div>
+
+        <footer className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-8 px-6 sm:px-[clamp(24px,5vw,76px)] py-6 border-t border-[#e5eaf1] bg-[#f7f9fc] text-[#506180] text-xs leading-relaxed">
+          <div className="flex items-center gap-3 whitespace-nowrap">
+            <ShieldIcon small />
+            <span>
+              <strong className="text-[#0c2a5a]">Ministerio de Finanzas Públicas</strong><br />Gobierno de Guatemala
+            </span>
           </div>
-        </div>
-      </div>
-
-      {/* Institutional Legal Footer */}
-      <footer className="w-full max-w-5xl py-4 border-t border-slate-800/80 text-center text-xs text-slate-400 z-10 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <div>
-          <strong>Ministerio de Finanzas Públicas</strong> · Gobierno de Guatemala
-        </div>
-        <div className="text-[11px] text-slate-400">
-          8a. Avenida 20-59, Zona 1, Centro Cívico, Ciudad de Guatemala · PBX: (502) 2374-3000
-        </div>
-      </footer>
-    </div>
+          <address className="not-italic text-left sm:text-right">
+            8a. Avenida 20-59, Zona 1, Centro Cívico, Ciudad de Guatemala<br />PBX: (502) 2374-3000
+          </address>
+        </footer>
+      </section>
+    </main>
   );
 };

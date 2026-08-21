@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { SocialIcon, WordPressIcon } from './OfficialLogos';
+import { SocialIcon, WordPressIcon, networkLabel } from './OfficialLogos';
 import { 
   Plus, 
   Search, 
@@ -45,6 +45,12 @@ export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenA
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const canEdit = user.role === 'admin' || user.role === 'editor';
+
+  const formatUpdatedAt = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString('es-GT', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
 
   const handleCopyShortcode = (shortcode: string, feedId: string) => {
     navigator.clipboard.writeText(shortcode);
@@ -152,7 +158,7 @@ export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenA
               onChange={(e) => setPortalFilter(e.target.value)}
               className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-slate-700 focus:outline-none focus:border-[#003876] focus:bg-white cursor-pointer"
             >
-              <option value="all">Filtrar por Portal Asignado (25)</option>
+              <option value="all">Filtrar por Portal Asignado ({portals.length})</option>
               {portals.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -201,7 +207,7 @@ export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenA
                           slug: <span className="text-[#003876] font-semibold">{feed.slug}</span>
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5">
-                          Actualizado: {feed.updatedAt.split(' ')[0]}
+                          Actualizado: {formatUpdatedAt(feed.updatedAt)}
                         </div>
                       </td>
 
@@ -209,17 +215,21 @@ export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenA
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-1.5 font-medium text-slate-700">
                           <SocialIcon network={feed.network} size={16} />
-                          <span className="capitalize">
-                            {feed.network === 'mixed' ? 'Multi-Red' : feed.network}
-                          </span>
+                          <span>{networkLabel(feed.network)}</span>
                         </div>
                       </td>
 
                       {/* Posts Count */}
                       <td className="py-3.5 px-4 text-center">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                          {feed.postIds.length}
-                        </span>
+                        {feed.postIds.length === 0 ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200" title="Este feed no muestra nada en los portales hasta que tenga publicaciones">
+                            Sin contenido
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                            {feed.postIds.length}
+                          </span>
+                        )}
                       </td>
 
                       {/* Assigned Portals */}

@@ -151,7 +151,7 @@ export const SettingsView: React.FC = () => {
           <span>Identidad Institucional</span>
         </div>
         <p className="text-xs text-slate-600">
-          El logo se muestra en el panel de administración (barra lateral, encabezado). No aplica todavía a la pantalla de inicio de sesión pública.
+          El logo se muestra en el panel de administración (barra lateral, encabezado) y en la pantalla de inicio de sesión / MFA.
         </p>
         <div className="flex items-center gap-4">
           <div className="w-24 h-24 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0 p-2">

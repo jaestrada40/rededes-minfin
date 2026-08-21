@@ -1,5 +1,19 @@
 import React from 'react';
 
+export const NETWORK_LABELS: Record<string, string> = {
+  x: 'X (Twitter)',
+  facebook: 'Facebook',
+  instagram: 'Instagram',
+  youtube: 'YouTube',
+  linkedin: 'LinkedIn',
+  tiktok: 'TikTok',
+  mixed: 'Multi-Red',
+};
+
+export function networkLabel(network: string): string {
+  return NETWORK_LABELS[network] ?? network;
+}
+
 export const MinfinLogo: React.FC<{ className?: string; variant?: 'full' | 'compact' | 'white' | 'dark'; logoUrl?: string }> = ({
   className = 'h-10',
   variant = 'full',
@@ -20,23 +34,33 @@ export const MinfinLogo: React.FC<{ className?: string; variant?: 'full' | 'comp
           className="shrink-0 h-full w-auto max-w-full rounded-lg object-contain"
         />
       ) : (
-        <div className="relative flex items-center justify-center shrink-0 h-full aspect-square rounded-lg bg-gradient-to-b from-[#0c2340] to-[#08182b] border border-blue-400/30 shadow-sm p-1">
-          <svg viewBox="0 0 100 100" className="w-full h-full" fill="none">
-            {/* Outer Sun Rays & Laurel Wreath */}
-            <circle cx="50" cy="50" r="44" stroke="#e2a03f" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" />
-
-            {/* Stylized Coat of Arms elements: Quetzal & Scroll */}
-            <path d="M25 72 C35 78, 65 78, 75 72" stroke="#4997d0" strokeWidth="3" strokeLinecap="round" />
-            <path d="M30 45 L50 22 L70 45 L50 68 Z" fill="#4997d0" fillOpacity="0.25" stroke="#ffffff" strokeWidth="1.5" />
-
-            {/* Scroll ribbon representation */}
-            <rect x="36" y="44" width="28" height="12" rx="2" fill="#ffffff" />
-            <line x1="40" y1="48" x2="60" y2="48" stroke="#0c2340" strokeWidth="1.5" />
-            <line x1="42" y1="52" x2="58" y2="52" stroke="#0c2340" strokeWidth="1" />
-
-            {/* Quetzal perched on top */}
-            <path d="M50 20 C48 16, 52 14, 53 11 C54 8, 51 6, 49 8 C47 10, 48 16, 46 22" stroke="#00a859" strokeWidth="2" strokeLinecap="round" />
-            <path d="M46 22 C42 30, 44 42, 40 54" stroke="#00a859" strokeWidth="1.5" strokeLinecap="round" />
+        <div className="relative flex items-center justify-center shrink-0 h-full aspect-square rounded-lg bg-gradient-to-b from-[#0c2340] to-[#08182b] border border-blue-400/30 shadow-sm">
+          <svg viewBox="0 0 100 100" className="w-[68%] h-[68%]" fill="none">
+            {/* Simple institutional monogram: shield outline + MF */}
+            <path
+              d="M50 6 L88 18 V46 C88 68 72 84 50 94 C28 84 12 68 12 46 V18 Z"
+              fill="none"
+              stroke="#e2a03f"
+              strokeWidth="3"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M50 6 L88 18 V46 C88 68 72 84 50 94 C28 84 12 68 12 46 V18 Z"
+              fill="#0072ce"
+              fillOpacity="0.12"
+            />
+            <text
+              x="50"
+              y="60"
+              textAnchor="middle"
+              fontFamily="Arial, sans-serif"
+              fontWeight="800"
+              fontSize="34"
+              fill="#ffffff"
+              letterSpacing="-1"
+            >
+              MF
+            </text>
           </svg>
         </div>
       )}
@@ -78,7 +102,7 @@ export const SocialIcon: React.FC<{
         height={size}
         viewBox="0 0 24 24"
         fill="currentColor"
-        className={`${colored ? 'text-black dark:text-white' : ''} ${className}`}
+        className={`${colored ? 'text-black' : ''} ${className}`}
       >
         <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
       </svg>

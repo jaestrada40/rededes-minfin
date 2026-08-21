@@ -39,8 +39,10 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
     testPortalConnection,
     assignFeedToPortals,
     createPortal,
+    updatePortal,
     deletePortal,
     requestConfirm,
+    showNotification,
     user
   } = useApp();
 
@@ -51,24 +53,53 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
   const [showAssignDropdownForPortal, setShowAssignDropdownForPortal] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingPortalId, setEditingPortalId] = useState<string | null>(null);
   const [deletingPortalId, setDeletingPortalId] = useState<string | null>(null);
-  const [newPortal, setNewPortal] = useState({
+  const EMPTY_PORTAL_FORM = {
     name: '',
     domain: '',
     category: 'Institucional',
-    ipAddress: '',
-    wpVersion: '',
-    pluginVersion: '',
-    description: ''
-  });
+    description: '',
+    webhookEnabled: true
+  };
+  const [newPortal, setNewPortal] = useState(EMPTY_PORTAL_FORM);
+
+  const openCreatePortal = () => {
+    setEditingPortalId(null);
+    setNewPortal(EMPTY_PORTAL_FORM);
+    setIsCreateOpen(true);
+  };
+
+  const openEditPortal = (portal: WordPressPortal) => {
+    setEditingPortalId(portal.id);
+    setNewPortal({
+      name: portal.name,
+      domain: portal.domain,
+      category: portal.category,
+      description: portal.description,
+      webhookEnabled: portal.webhookEnabled
+    });
+    setIsCreateOpen(true);
+  };
 
   const canEdit = user.role === 'admin';
 
-  const handleCreatePortal = async (e: React.FormEvent) => {
+  const formatSyncDate = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('es-GT', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+
+  const handleSubmitPortal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPortal.name.trim() || !newPortal.domain.trim()) return;
-    await createPortal(newPortal);
-    setNewPortal({ name: '', domain: '', category: 'Institucional', ipAddress: '', wpVersion: '', pluginVersion: '', description: '' });
+    if (editingPortalId) {
+      await updatePortal(editingPortalId, newPortal);
+    } else {
+      await createPortal(newPortal);
+    }
+    setNewPortal(EMPTY_PORTAL_FORM);
+    setEditingPortalId(null);
     setIsCreateOpen(false);
   };
 
@@ -129,7 +160,9 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
       ? feed.assignedPortalIds.filter(id => id !== portalId)
       : [...feed.assignedPortalIds, portalId];
 
-    assignFeedToPortals(feedId, newPortalIds);
+    assignFeedToPortals(feedId, newPortalIds).catch((err) => {
+      showNotification(err instanceof Error ? err.message : 'No se pudo actualizar la asignación.', 'error');
+    });
   };
 
   return (
@@ -158,7 +191,7 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
         <div className="flex items-center gap-2.5 shrink-0">
           {canEdit && (
             <button
-              onClick={() => setIsCreateOpen(true)}
+              onClick={openCreatePortal}
               className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -175,17 +208,22 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
         </div>
       </div>
 
-      {/* Create Portal Modal */}
+      {/* Create/Edit Portal Modal */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-300 max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="bg-[#003876] text-white p-4 sm:p-5 flex items-center justify-between">
-              <h3 className="text-sm sm:text-base font-bold">Registrar Nuevo Portal WordPress</h3>
-              <button onClick={() => setIsCreateOpen(false)} className="p-1 text-blue-200 hover:text-white rounded-lg cursor-pointer">
+              <h3 className="text-sm sm:text-base font-bold">
+                {editingPortalId ? 'Editar Portal WordPress' : 'Registrar Nuevo Portal WordPress'}
+              </h3>
+              <button
+                onClick={() => { setIsCreateOpen(false); setEditingPortalId(null); }}
+                className="p-1 text-blue-200 hover:text-white rounded-lg cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleCreatePortal} className="p-4 sm:p-6 space-y-3 text-xs">
+            <form onSubmit={handleSubmitPortal} className="p-4 sm:p-6 space-y-3 text-xs">
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Nombre del Portal *</label>
                 <input
@@ -206,46 +244,15 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
                   placeholder="ejemplo.minfin.gob.gt"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Categoría</label>
-                  <select
-                    value={newPortal.category}
-                    onChange={(e) => setNewPortal({ ...newPortal, category: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-[#003876] cursor-pointer"
-                  >
-                    {PORTAL_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Dirección IP</label>
-                  <input
-                    value={newPortal.ipAddress}
-                    onChange={(e) => setNewPortal({ ...newPortal, ipAddress: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-[#003876] font-mono"
-                    placeholder="190.85.120.x"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Versión WordPress</label>
-                  <input
-                    value={newPortal.wpVersion}
-                    onChange={(e) => setNewPortal({ ...newPortal, wpVersion: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-[#003876]"
-                    placeholder="6.7.2"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Versión Plugin</label>
-                  <input
-                    value={newPortal.pluginVersion}
-                    onChange={(e) => setNewPortal({ ...newPortal, pluginVersion: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-[#003876]"
-                    placeholder="v2.4.1"
-                  />
-                </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Categoría</label>
+                <select
+                  value={newPortal.category}
+                  onChange={(e) => setNewPortal({ ...newPortal, category: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-[#003876] cursor-pointer"
+                >
+                  {PORTAL_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
               </div>
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Descripción</label>
@@ -257,10 +264,19 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
                   placeholder="Breve descripción institucional del portal"
                 />
               </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newPortal.webhookEnabled}
+                  onChange={(e) => setNewPortal({ ...newPortal, webhookEnabled: e.target.checked })}
+                  className="rounded text-blue-600"
+                />
+                <span className="font-bold text-slate-700">Webhook habilitado</span>
+              </label>
               <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setIsCreateOpen(false)}
+                  onClick={() => { setIsCreateOpen(false); setEditingPortalId(null); }}
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold cursor-pointer"
                 >
                   Cancelar
@@ -269,7 +285,7 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
                   type="submit"
                   className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow cursor-pointer"
                 >
-                  Registrar Portal
+                  {editingPortalId ? 'Guardar Cambios' : 'Registrar Portal'}
                 </button>
               </div>
             </form>
@@ -297,7 +313,7 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
           <div className="flex items-center gap-2">
             <span className="text-xs text-blue-200">Ejemplo común:</span>
             <code className="text-xs font-mono bg-[#001c3d] text-emerald-300 px-3 py-1.5 rounded-lg border border-blue-900/60 select-all font-bold">
-              [{settings.shortcodeTag} feed="x-comunicados"]
+              [{settings.shortcodeTag} feed="{feeds[0]?.slug || 'slug-del-feed'}"]
             </code>
           </div>
         </div>
@@ -383,7 +399,6 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
               {paginatedPortals.map((portal) => {
                 const assignedFeeds = feeds.filter(f => f.assignedPortalIds.includes(portal.id));
                 const isTesting = testingPortalId === portal.id;
-                const isDropdownOpen = showAssignDropdownForPortal === portal.id;
 
                 return (
                   <tr key={portal.id} className="hover:bg-slate-50/80 transition-colors">
@@ -394,8 +409,13 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
                         <span>{portal.name}</span>
                       </div>
                       <div className="text-[10px] text-slate-500 mt-0.5">
-                        Categoría: <span className="font-semibold text-slate-700">{portal.category}</span> · WP {portal.wpVersion}
+                        Categoría: <span className="font-semibold text-slate-700">{portal.category}</span>
                       </div>
+                      {portal.description && (
+                        <div className="text-[10px] text-slate-400 mt-0.5 max-w-xs truncate" title={portal.description}>
+                          {portal.description}
+                        </div>
+                      )}
                     </td>
 
                     {/* Domain */}
@@ -409,30 +429,39 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
                         <span>{portal.domain}</span>
                         <ExternalLink className="w-3 h-3 text-slate-400" />
                       </a>
-                      <div className="text-[10px] text-slate-400 font-mono">
-                        IP: {portal.ipAddress}
-                      </div>
                     </td>
 
                     {/* Connection Status */}
                     <td className="py-3.5 px-4">
-                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                        <span>Conectado (v2.4.1)</span>
-                      </div>
+                      {portal.connectionStatus === 'connected' ? (
+                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                          <span>Conectado</span>
+                        </div>
+                      ) : portal.connectionStatus === 'syncing' ? (
+                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-300">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
+                          <span>Sincronizando</span>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-red-800 border border-red-300">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-600" />
+                          <span>Sin conexión</span>
+                        </div>
+                      )}
                       <div className="text-[10px] text-slate-400 mt-0.5">
-                        Token REST API válido
+                        {portal.tokenValid ? 'Dominio verificado' : 'No se pudo verificar el dominio'}
                       </div>
                     </td>
 
                     {/* Assigned Feeds */}
-                    <td className="py-3.5 px-4 relative">
+                    <td className="py-3.5 px-4">
                       <div className="flex flex-wrap items-center gap-1 max-w-xs">
                         {assignedFeeds.length === 0 ? (
                           <span className="text-slate-400 text-[11px] italic">Sin feeds asignados</span>
                         ) : (
                           assignedFeeds.map(f => (
-                            <span 
+                            <span
                               key={f.id}
                               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200"
                               title={f.name}
@@ -445,51 +474,21 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
                       </div>
 
                       {canEdit && (
-                        <div className="mt-1">
-                          <button
-                            onClick={() => setShowAssignDropdownForPortal(isDropdownOpen ? null : portal.id)}
-                            className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                          >
-                            {isDropdownOpen ? 'Cerrar asignación' : '+ Modificar feeds'}
-                          </button>
-
-                          {/* Quick Assign Dropdown */}
-                          {isDropdownOpen && (
-                            <div className="absolute left-4 top-12 w-64 bg-white border border-slate-300 rounded-xl shadow-xl p-3 z-50 text-xs">
-                              <div className="font-bold text-[#0c2340] border-b border-slate-100 pb-1.5 mb-2 flex items-center justify-between">
-                                <span>Feeds en este portal</span>
-                                <span className="text-[10px] text-slate-400">{assignedFeeds.length} activos</span>
-                              </div>
-                              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                                {feeds.map(feed => {
-                                  const isAssigned = feed.assignedPortalIds.includes(portal.id);
-                                  return (
-                                    <label
-                                      key={feed.id}
-                                      className="flex items-center gap-2 p-1 rounded hover:bg-slate-50 cursor-pointer"
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={isAssigned}
-                                        onChange={() => toggleFeedInPortal(portal.id, feed.id)}
-                                        className="rounded text-blue-600"
-                                      />
-                                      <SocialIcon network={feed.network} size={12} />
-                                      <span className="text-[11px] text-slate-700 truncate">{feed.name}</span>
-                                    </label>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                        <button
+                          onClick={() => setShowAssignDropdownForPortal(portal.id)}
+                          className="mt-1 text-[10px] font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        >
+                          + Modificar feeds
+                        </button>
                       )}
                     </td>
 
                     {/* Last Sync */}
                     <td className="py-3.5 px-4 font-mono text-[11px] text-slate-600">
-                      <div>{portal.lastSyncAt}</div>
-                      <div className="text-[10px] text-emerald-600">Webhook OK</div>
+                      <div>{formatSyncDate(portal.lastSyncAt)}</div>
+                      <div className={`text-[10px] ${portal.webhookEnabled ? 'text-emerald-600' : 'text-slate-400'}`}>
+                        {portal.webhookEnabled ? 'Webhook activo' : 'Webhook deshabilitado'}
+                      </div>
                     </td>
 
                     {/* Actions */}
@@ -504,6 +503,15 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
                           <RefreshCw className={`w-3 h-3 ${isTesting ? 'animate-spin text-blue-600' : ''}`} />
                           <span>{isTesting ? 'Probando...' : 'Probar Ping'}</span>
                         </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => openEditPortal(portal)}
+                            className="p-1.5 text-slate-600 hover:text-[#003876] hover:bg-blue-50 rounded border border-slate-200 cursor-pointer"
+                            title="Editar portal"
+                          >
+                            <Sliders className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {canEdit && (
                           <button
                             onClick={async () => {
@@ -530,6 +538,65 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
         </div>
         <Pagination page={page} pageSize={PAGE_SIZE} total={filteredPortals.length} onPageChange={setPage} />
       </div>
+
+      {/* Assign Feeds Modal */}
+      {showAssignDropdownForPortal && (() => {
+        const portal = portals.find(p => p.id === showAssignDropdownForPortal);
+        if (!portal) return null;
+        const assignedCount = feeds.filter(f => f.assignedPortalIds.includes(portal.id)).length;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-300 max-w-md w-full max-h-[85vh] flex flex-col overflow-hidden">
+              <div className="bg-[#003876] text-white p-4 sm:p-5 flex items-center justify-between shrink-0">
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold">Feeds en "{portal.name}"</h3>
+                  <p className="text-xs text-blue-100">{assignedCount} de {feeds.length} feeds asignados a este portal</p>
+                </div>
+                <button
+                  onClick={() => setShowAssignDropdownForPortal(null)}
+                  className="p-1 text-blue-200 hover:text-white rounded-lg cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-4 sm:p-5 space-y-1.5 overflow-y-auto">
+                {feeds.length === 0 ? (
+                  <p className="text-xs text-slate-500 text-center py-4">No hay feeds creados todavía.</p>
+                ) : (
+                  feeds.map(feed => {
+                    const isAssigned = feed.assignedPortalIds.includes(portal.id);
+                    return (
+                      <label
+                        key={feed.id}
+                        className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-200"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isAssigned}
+                          onChange={() => toggleFeedInPortal(portal.id, feed.id)}
+                          className="rounded text-blue-600"
+                        />
+                        <SocialIcon network={feed.network} size={14} />
+                        <span className="text-xs text-slate-700 truncate flex-1">{feed.name}</span>
+                        <span className="text-[10px] font-mono text-slate-400">{feed.slug}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              <div className="p-4 border-t border-slate-200 flex justify-end shrink-0">
+                <button
+                  onClick={() => setShowAssignDropdownForPortal(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold text-xs cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

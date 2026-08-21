@@ -7,9 +7,38 @@ services:
       POSTGRES_PASSWORD: minfin
       POSTGRES_DB: minfin_social
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - minfin_pg_data:/var/lib/postgresql/data
 
+  wp_mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: wproot
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+    volumes:
+      - minfin_wp_mysql_data:/var/lib/mysql
+
+  wordpress:
+    image: wordpress:latest
+    restart: unless-stopped
+    depends_on:
+      - wp_mysql
+    environment:
+      WORDPRESS_DB_HOST: wp_mysql:3306
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+    ports:
+      - "8080:80"
+    volumes:
+      - minfin_wp_data:/var/www/html
+      - ./wordpress-plugin/minfin-social-feed:/var/www/html/wp-content/plugins/minfin-social-feed
+
 volumes:
   minfin_pg_data:
+  minfin_wp_mysql_data:
+  minfin_wp_data:

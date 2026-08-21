@@ -82,12 +82,12 @@ class Minfin_Social_Feed {
     public function sanitize_settings($input) {
         return [
             'api_url' => isset($input['api_url']) ? untrailingslashit(esc_url_raw($input['api_url'])) : '',
-            'cache_seconds' => isset($input['cache_seconds']) ? max(0, intval($input['cache_seconds'])) : 300,
+            'cache_seconds' => isset($input['cache_seconds']) ? max(0, intval($input['cache_seconds'])) : 10,
         ];
     }
 
     private function get_settings() {
-        $defaults = ['api_url' => '', 'cache_seconds' => 300];
+        $defaults = ['api_url' => '', 'cache_seconds' => 10];
         return wp_parse_args(get_option(MINFIN_SOCIAL_FEED_OPTION, []), $defaults);
     }
 
@@ -116,7 +116,7 @@ class Minfin_Social_Feed {
                         <td>
                             <input type="number" id="minfin_cache_seconds" name="<?php echo esc_attr(MINFIN_SOCIAL_FEED_OPTION); ?>[cache_seconds]"
                                 value="<?php echo esc_attr($settings['cache_seconds']); ?>" min="0" class="small-text" />
-                            <p class="description">Tiempo que se guarda el feed en caché (WordPress Transients) antes de volver a consultar la API.</p>
+                            <p class="description">Tiempo que se guarda el feed en caché (WordPress Transients) antes de volver a consultar la API. Un cambio hecho en el Gestor puede tardar hasta este tiempo en verse aquí. Recomendado: 10-30 segundos.</p>
                         </td>
                     </tr>
                 </table>
@@ -262,12 +262,64 @@ class Minfin_Social_Feed {
         }
 
         $layout_class = 'minfin-social-feed--' . sanitize_html_class($layout ?: 'grid');
+        $has_x_post = false;
         ob_start();
         ?>
         <div class="minfin-social-feed <?php echo esc_attr($layout_class); ?>">
             <?php foreach ($posts as $post): ?>
-                <?php echo $this->render_card($post, $show_metrics, $show_media); ?>
+                <?php if (($post['network'] ?? '') === 'x'): ?>
+                    <?php $has_x_post = true; ?>
+                    <?php echo $this->render_card_x($post); ?>
+                <?php elseif (($post['network'] ?? '') === 'facebook'): ?>
+                    <?php echo $this->render_card_facebook($post); ?>
+                <?php else: ?>
+                    <?php echo $this->render_card($post, $show_metrics, $show_media); ?>
+                <?php endif; ?>
             <?php endforeach; ?>
+        </div>
+        <?php if ($has_x_post): ?>
+            <script async src="https://platform.x.com/widgets.js" charset="utf-8"></script>
+        <?php endif; ?>
+        <?php
+        return ob_get_clean();
+    }
+
+    // X ya no sirve datos completos (imagen, avatar) a scrapers/APIs no
+    // oficiales de forma confiable, así que en vez de reconstruir una tarjeta
+    // propia usamos el embed oficial de X (blockquote + widgets.js) — el
+    // mismo mecanismo que ofrece "Insertar publicación" en x.com. Requiere
+    // que el post tenga una URL de x.com/twitter.com válida.
+    private function render_card_x($post) {
+        $url = $post['url'] ?? '';
+        ob_start();
+        ?>
+        <div class="minfin-social-feed__x-embed">
+            <blockquote class="twitter-tweet" data-lang="es" data-dnt="true">
+                <a href="<?php echo esc_url($url); ?>"></a>
+            </blockquote>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    // Facebook restringe la Graph API a publicaciones propias con un Page
+    // Access Token, pero el "Post Embed" oficial (plugins/post.php) funciona
+    // para cualquier publicación pública sin credenciales — igual mecanismo
+    // que "Insertar publicación" en facebook.com.
+    private function render_card_facebook($post) {
+        $url = $post['url'] ?? '';
+        $embed_url = 'https://www.facebook.com/plugins/post.php?href=' . rawurlencode($url) . '&show_text=true&width=500';
+        ob_start();
+        ?>
+        <div class="minfin-social-feed__fb-embed">
+            <iframe
+                src="<?php echo esc_url($embed_url); ?>"
+                title="Publicación de Facebook"
+                loading="lazy"
+                style="border:none;overflow:hidden;"
+                scrolling="no"
+                allow="encrypted-media"
+            ></iframe>
         </div>
         <?php
         return ob_get_clean();
@@ -292,7 +344,17 @@ class Minfin_Social_Feed {
                 </div>
             </div>
             <div class="minfin-social-feed__content"><?php echo nl2br(esc_html($post['content'])); ?></div>
-            <?php if ($show_media && $media_url): ?>
+            <?php if ($show_media && ($post['network'] ?? '') === 'youtube'): ?>
+                <div class="minfin-social-feed__media minfin-social-feed__media--video">
+                    <iframe
+                        src="<?php echo esc_url('https://www.youtube.com/embed/' . rawurlencode($post['postId'])); ?>"
+                        title="<?php echo esc_attr($post['content']); ?>"
+                        loading="lazy"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowfullscreen
+                    ></iframe>
+                </div>
+            <?php elseif ($show_media && $media_url): ?>
                 <div class="minfin-social-feed__media">
                     <img src="<?php echo esc_url($media_url); ?>" alt="" loading="lazy" />
                 </div>
@@ -331,11 +393,17 @@ class Minfin_Social_Feed {
 .minfin-social-feed__content { padding: 14px; font-size: 13px; color: #1e293b; line-height: 1.5; white-space: pre-line; flex: 1; }
 .minfin-social-feed__media { background: #020617; height: 240px; overflow: hidden; border-top: 1px solid #f1f5f9; border-bottom: 1px solid #f1f5f9; }
 .minfin-social-feed__media img { width: 100%; height: 100%; object-fit: contain; }
+.minfin-social-feed__media--video { height: auto; aspect-ratio: 16 / 9; }
+.minfin-social-feed__media--video iframe { width: 100%; height: 100%; border: 0; display: block; }
 .minfin-social-feed__footer { padding: 10px 14px; background: #f8fafc; display: flex; align-items: center; justify-content: space-between; font-size: 11px; }
 .minfin-social-feed__footer a { color: #1d4ed8; text-decoration: none; font-weight: 600; }
 .minfin-social-feed__footer a:hover { text-decoration: underline; }
 .minfin-social-feed__stats { display: flex; gap: 10px; color: #475569; font-family: monospace; }
 .minfin-social-feed__brand { color: #94a3b8; font-family: monospace; }
+.minfin-social-feed__x-embed { display: flex; justify-content: center; }
+.minfin-social-feed__x-embed .twitter-tweet { margin: 0 auto !important; }
+.minfin-social-feed__fb-embed { display: flex; justify-content: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+.minfin-social-feed__fb-embed iframe { width: 100%; max-width: 500px; height: 680px; }
 .minfin-social-feed-error { padding: 12px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 8px; font-size: 13px; }
 .minfin-social-feed--empty { padding: 24px; text-align: center; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; color: #64748b; }
 CSS;

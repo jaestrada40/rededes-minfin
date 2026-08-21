@@ -34,10 +34,13 @@ function extractPostIdAndDetails(input: string, network: string): { postId: stri
       url = `https://www.instagram.com/p/${postId}/`;
     }
   } else if (network === 'youtube') {
-    const match = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/i);
+    const match = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/i);
     if (match) {
       postId = match[1];
       url = `https://www.youtube.com/watch?v=${postId}`;
+    } else if (/^[\w-]{11}$/.test(trimmed)) {
+      postId = trimmed;
+      url = `https://www.youtube.com/watch?v=${trimmed}`;
     }
   } else if (network === 'facebook') {
     const match =
@@ -64,6 +67,21 @@ interface OEmbedResult {
   title?: string;
   authorName?: string;
   thumbnailUrl?: string;
+  authorAvatarUrl?: string;
+  publishedAt?: string;
+}
+
+const PUBLISHED_AT_FORMATTER = new Intl.DateTimeFormat('es-GT', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  timeZone: 'America/Guatemala',
+});
+
+function formatPublishedAt(date: Date): string {
+  return PUBLISHED_AT_FORMATTER.format(date).replace(' a. m.', ' a.m.').replace(' p. m.', ' p.m.');
 }
 
 // YouTube y TikTok exponen oEmbed público sin credenciales. Instagram y
@@ -83,10 +101,16 @@ async function fetchOEmbed(network: string, url: string): Promise<OEmbedResult |
     if (!res.ok) return null;
 
     const data = await res.json();
+    const authorAvatarUrl =
+      network === 'youtube' && typeof data.author_url === 'string'
+        ? await fetchYouTubeChannelAvatar(data.author_url)
+        : undefined;
+
     return {
       title: typeof data.title === 'string' ? data.title : undefined,
       authorName: typeof data.author_name === 'string' ? data.author_name : undefined,
       thumbnailUrl: typeof data.thumbnail_url === 'string' ? data.thumbnail_url : undefined,
+      authorAvatarUrl,
     };
   } catch {
     return null;
@@ -95,49 +119,63 @@ async function fetchOEmbed(network: string, url: string): Promise<OEmbedResult |
   }
 }
 
-function decodeHtmlEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-}
-
-function getMetaContent(html: string, property: string): string | undefined {
-  const patterns = [
-    new RegExp(`<meta[^>]*property=["']${property}["'][^>]*content=["']([^"']*)["']`, 'i'),
-    new RegExp(`<meta[^>]*content=["']([^"']*)["'][^>]*property=["']${property}["']`, 'i'),
-  ];
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match) return decodeHtmlEntities(match[1]);
-  }
-  return undefined;
-}
-
-// X no ofrece una API de lectura gratuita, pero sirve etiquetas Open Graph
-// completas (título, descripción e imagen real) a crawlers de vista previa
-// como Twitterbot/Facebookexternalhit — el mismo mecanismo que usan otras
-// redes para renderizar la tarjeta de enlace. Sin necesidad de credenciales.
-async function fetchTwitterCard(url: string): Promise<OEmbedResult | null> {
+// El oEmbed de YouTube no incluye el logo del canal, solo la miniatura del
+// video. El logo real (mismo que se ve en youtube.com) viene en la etiqueta
+// og:image de la página pública del canal — sin necesidad de la YouTube Data
+// API ni una API key.
+async function fetchYouTubeChannelAvatar(channelUrl: string): Promise<string | undefined> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(channelUrl, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'Twitterbot/1.0' },
+      headers: { 'User-Agent': 'Mozilla/5.0' },
     });
+    if (!res.ok) return undefined;
+    const html = await res.text();
+    const match = html.match(/<meta property="og:image" content="([^"]*)"/);
+    return match ? match[1] : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// X ya no sirve etiquetas Open Graph a crawlers sin sesión (devuelve 404 a
+// Twitterbot/Facebookexternalhit desde 2023), así que el scraping de tarjeta
+// dejó de funcionar. En su lugar se usa el endpoint de sindicación que
+// alimenta los widgets de embed oficiales de X (cdn.syndication.twimg.com) —
+// público, sin credenciales, y a diferencia del oEmbed oficial (que solo da
+// HTML de embed) expone el texto plano y la URL directa de la imagen/video.
+async function fetchTwitterCard(postId: string): Promise<OEmbedResult | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(
+      `https://cdn.syndication.twimg.com/tweet-result?id=${encodeURIComponent(postId)}&token=a`,
+      { signal: controller.signal },
+    );
     if (!res.ok) return null;
 
-    const html = await res.text();
-    const ogTitle = getMetaContent(html, 'og:title');
-    const authorName = ogTitle ? ogTitle.replace(/\s*\(@[^)]+\)\s*on X$/i, '').trim() : undefined;
+    const data = await res.json();
+    if (typeof data.text !== 'string') return null;
+
+    const media = Array.isArray(data.mediaDetails) ? data.mediaDetails[0] : undefined;
+    const thumbnailUrl =
+      typeof media?.media_url_https === 'string'
+        ? media.media_url_https
+        : typeof data.video?.poster === 'string'
+          ? data.video.poster
+          : undefined;
 
     return {
-      title: getMetaContent(html, 'og:description'),
-      authorName,
-      thumbnailUrl: getMetaContent(html, 'og:image'),
+      title: data.text,
+      authorName: typeof data.user?.name === 'string' ? data.user.name : undefined,
+      thumbnailUrl,
+      authorAvatarUrl:
+        typeof data.user?.profile_image_url_https === 'string' ? data.user.profile_image_url_https : undefined,
+      publishedAt: typeof data.created_at === 'string' ? formatPublishedAt(new Date(data.created_at)) : undefined,
     };
   } catch {
     return null;
@@ -271,6 +309,7 @@ export class FeedsService {
                 url: true,
                 authorHandle: true,
                 authorName: true,
+                authorAvatarUrl: true,
                 publishedAt: true,
                 content: true,
                 mediaType: true,
@@ -294,7 +333,7 @@ export class FeedsService {
         ...link,
         post: {
           ...link.post,
-          authorAvatarUrl: officialAccounts[link.post.network]?.avatarUrl || null,
+          authorAvatarUrl: link.post.authorAvatarUrl || officialAccounts[link.post.network]?.avatarUrl || null,
         },
       })),
     };
@@ -387,6 +426,14 @@ export class FeedsService {
     actor: { id: string; email: string; role: string },
   ) {
     const feed = await this.prisma.feed.findUniqueOrThrow({ where: { id: feedId } });
+
+    if (feed.network !== 'mixed' && feed.network !== input.network) {
+      return {
+        success: false,
+        message: `Este feed es de ${feed.network.toUpperCase()}; no se pueden agregar publicaciones de otra red social. Cree o use un feed "Multi-Red (Mixto)" si necesita combinar redes.`,
+      };
+    }
+
     const { postId, url } = extractPostIdAndDetails(input.urlOrId, input.network);
 
     if (!postId) {
@@ -399,14 +446,14 @@ export class FeedsService {
 
     if (!post) {
       const settings = await this.settings.get();
-      const account = (settings.officialAccounts as Record<string, { handle?: string; name?: string }>)?.[input.network];
+      const account = (settings.officialAccounts as Record<string, { handle?: string; name?: string; avatarUrl?: string }>)?.[input.network];
       const apiKeys = (settings.apiKeys as Record<string, string>) || {};
       const oembed = input.customContent
         ? null
         : input.network === 'facebook'
           ? await fetchFacebookPost(postId, apiKeys.facebook)
           : input.network === 'x'
-            ? await fetchTwitterCard(url)
+            ? await fetchTwitterCard(postId)
             : await fetchOEmbed(input.network, url);
 
       const mediaThumbOrUrl = input.customMediaUrl || oembed?.thumbnailUrl;
@@ -418,7 +465,8 @@ export class FeedsService {
           url,
           authorHandle: account?.handle ?? '@MinfinGT',
           authorName: input.customAuthorName || oembed?.authorName || account?.name || 'Ministerio de Finanzas Públicas',
-          publishedAt: 'Hoy · Reciente',
+          authorAvatarUrl: account?.avatarUrl || oembed?.authorAvatarUrl,
+          publishedAt: oembed?.publishedAt || formatPublishedAt(new Date()),
           content: input.customContent || oembed?.title || SAMPLE_CONTENT[input.network] || '',
           mediaType: input.network === 'youtube' ? 'video' : 'image',
           mediaThumb: input.network === 'youtube' ? mediaThumbOrUrl : undefined,
