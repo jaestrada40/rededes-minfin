@@ -84,28 +84,22 @@ export const AuditView: React.FC = () => {
 
   const roleDefinitions = [
     {
+      role: 'super_admin' as UserRole,
+      title: 'Super Administrador (DTI)',
+      description: 'Control técnico total del sistema: portales WordPress, configuración institucional, usuarios y auditoría — reservado a la Dirección de Tecnología de la Información (DTI).',
+      permissions: ['Crear/Editar Feeds', 'Gestión de Portales WordPress', 'Configuración del Sistema', 'Gestión de Usuarios y Roles', 'Ver y Exportar Auditoría']
+    },
+    {
       role: 'admin' as UserRole,
-      title: 'Administrador DTI',
-      description: 'Acceso total a la creación/edición de feeds, asignación de portales, gestión de cuentas y auditoría.',
-      permissions: ['Crear/Editar Feeds', 'Agregar/Eliminar Publicaciones', 'Asignar a Portales', 'Configuración de Servidor', 'Ver y Exportar Auditoría']
+      title: 'Administrador (Comunicación Social)',
+      description: 'Gestión operativa de feeds, publicaciones y del equipo de Comunicación Social, sin acceso a la configuración técnica del sistema ni a los portales WordPress.',
+      permissions: ['Crear/Editar Feeds', 'Agregar/Eliminar Publicaciones', 'Asignar Feeds a Portales', 'Gestión de Usuarios de su Equipo']
     },
     {
       role: 'editor' as UserRole,
       title: 'Gestor de Contenido',
       description: 'Permiso para registrar publicaciones, validar IDs y asociar contenido a feeds existentes.',
       permissions: ['Agregar/Eliminar Publicaciones', 'Reordenar Publicaciones', 'Vista Previa de Feeds', 'Consulta de Portales']
-    },
-    {
-      role: 'auditor' as UserRole,
-      title: 'Auditor de Control Interno (UDAI)',
-      description: 'Monitoreo de trazabilidad, cumplimiento de normativas de comunicación y descarga de bitácoras.',
-      permissions: ['Ver Todos los Feeds y Portales', 'Auditoría Completa', 'Exportación de Reportes Forenses']
-    },
-    {
-      role: 'viewer' as UserRole,
-      title: 'Consulta Institucional',
-      description: 'Solo lectura para dependencias técnicas y consulta de shortcodes disponibles.',
-      permissions: ['Ver Feeds', 'Consultar Shortcodes', 'Vista Previa']
     }
   ];
 

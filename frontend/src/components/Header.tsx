@@ -95,10 +95,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
   };
 
   const roleLabels: Record<UserRole, { title: string; color: string }> = {
-    admin: { title: 'Administrador DTI', color: 'bg-blue-100 text-blue-800 border-blue-300' },
-    editor: { title: 'Gestor de Contenido', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
-    auditor: { title: 'Auditor de Control', color: 'bg-amber-100 text-amber-800 border-amber-300' },
-    viewer: { title: 'Solo Consulta', color: 'bg-slate-100 text-slate-800 border-slate-300' }
+    super_admin: { title: 'Super Administrador (DTI)', color: 'bg-purple-100 text-purple-800 border-purple-300' },
+    admin: { title: 'Administrador', color: 'bg-blue-100 text-blue-800 border-blue-300' },
+    editor: { title: 'Gestor de Contenido', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' }
   };
 
   return (

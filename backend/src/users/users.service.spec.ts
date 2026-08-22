@@ -29,12 +29,15 @@ describe('UsersService', () => {
   });
 
   it('creates a user with a hashed password and resolved role', async () => {
-    const user = await service.create({
-      email: 'a@minfin.gob.gt',
-      password: 'Password123!',
-      name: 'Ana',
-      role: 'editor',
-    });
+    const user = await service.create(
+      {
+        email: 'a@minfin.gob.gt',
+        password: 'Password123!',
+        name: 'Ana',
+        role: 'editor',
+      },
+      { id: 'actor1', email: 'admin@minfin.gob.gt', role: 'super_admin' },
+    );
     expect(rolesMock.findByName).toHaveBeenCalledWith('editor');
     expect(prismaMock.user.create).toHaveBeenCalled();
     expect(user.email).toBe('a@minfin.gob.gt');

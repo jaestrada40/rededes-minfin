@@ -2,7 +2,7 @@ export type SocialNetworkType = 'x' | 'facebook' | 'instagram' | 'youtube' | 'li
 
 export type FeedStatus = 'active' | 'draft' | 'paused';
 
-export type UserRole = 'admin' | 'editor' | 'auditor' | 'viewer';
+export type UserRole = 'super_admin' | 'admin' | 'editor';
 
 export interface SocialAccount {
   network: SocialNetworkType;

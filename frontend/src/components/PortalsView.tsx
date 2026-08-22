@@ -82,7 +82,8 @@ export const PortalsView: React.FC<PortalsViewProps> = ({ onOpenBatchAssignModal
     setIsCreateOpen(true);
   };
 
-  const canEdit = user.role === 'admin';
+  // Alta/edición/baja de portales es configuración técnica del sitio WordPress — solo DTI (super_admin).
+  const canEdit = user.role === 'super_admin';
 
   const formatSyncDate = (value: string) => {
     const date = new Date(value);

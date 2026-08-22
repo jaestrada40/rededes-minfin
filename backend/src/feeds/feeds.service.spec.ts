@@ -3,6 +3,7 @@ import { FeedsService } from './feeds.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
+import { AuthService } from '../auth/auth.service';
 
 describe('FeedsService', () => {
   let service: FeedsService;
@@ -43,9 +44,13 @@ describe('FeedsService', () => {
       create: jest.fn().mockResolvedValue({ id: 'p1', network: 'x', postId: '123' }),
       update: jest.fn().mockResolvedValue({ id: 'p1', content: 'nuevo' }),
     },
+    user: {
+      findUnique: jest.fn().mockResolvedValue({ mfaEnabled: false }),
+    },
     $transaction: jest.fn((ops: any[]) => Promise.all(ops)),
   };
   const auditMock = { log: jest.fn() };
+  const authMock = { verifyMfaCode: jest.fn().mockResolvedValue(true) };
   const actor = { id: 'u1', email: 'a@minfin.gob.gt', role: 'admin' };
 
   beforeEach(() => {
@@ -63,6 +68,7 @@ describe('FeedsService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuditService, useValue: auditMock },
         { provide: SettingsService, useValue: { get: jest.fn().mockResolvedValue({ officialAccounts: {} }) } },
+        { provide: AuthService, useValue: authMock },
       ],
     }).compile();
     service = moduleRef.get(FeedsService);

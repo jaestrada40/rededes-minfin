@@ -13,13 +13,13 @@ import { AdminSetPasswordDto } from './dto/admin-set-password.dto';
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
-  @Roles('admin')
+  @Roles('super_admin', 'admin')
   @Post()
-  create(@Body() dto: CreateUserDto) {
-    return this.users.create(dto);
+  create(@Body() dto: CreateUserDto, @Req() req: any) {
+    return this.users.create(dto, req.user);
   }
 
-  @Roles('admin', 'editor', 'auditor', 'viewer')
+  @Roles('super_admin', 'admin', 'editor')
   @Get()
   findAll() {
     return this.users.findAll();
@@ -27,37 +27,37 @@ export class UsersController {
 
   // Cualquier usuario autenticado puede cambiar su propia contraseña —
   // debe ir antes de ":id" para no ser capturada por ese parámetro.
-  @Roles('admin', 'editor', 'auditor', 'viewer')
+  @Roles('super_admin', 'admin', 'editor')
   @Patch('me/password')
   changeOwnPassword(@Body() dto: ChangePasswordDto, @Req() req: any) {
     return this.users.changeOwnPassword(req.user.id, dto, req.user);
   }
 
-  @Roles('admin')
+  @Roles('super_admin', 'admin')
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateUserDto, @Req() req: any) {
     return this.users.update(id, dto, req.user);
   }
 
-  @Roles('admin')
+  @Roles('super_admin', 'admin')
   @Patch(':id/role')
   updateRole(@Param('id') id: string, @Body('role') role: string, @Req() req: any) {
     return this.users.updateRole(id, role, req.user);
   }
 
-  @Roles('admin')
+  @Roles('super_admin', 'admin')
   @Patch(':id/status')
   setActive(@Param('id') id: string, @Body('isActive') isActive: boolean, @Req() req: any) {
     return this.users.setActive(id, isActive, req.user);
   }
 
-  @Roles('admin')
+  @Roles('super_admin', 'admin')
   @Patch(':id/reset-mfa')
   resetMfa(@Param('id') id: string, @Req() req: any) {
     return this.users.resetMfa(id, req.user);
   }
 
-  @Roles('admin')
+  @Roles('super_admin', 'admin')
   @Patch(':id/password')
   adminSetPassword(@Param('id') id: string, @Body() dto: AdminSetPasswordDto, @Req() req: any) {
     return this.users.adminSetPassword(id, dto, req.user);

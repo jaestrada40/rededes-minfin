@@ -6,4 +6,5 @@ export class AddPostDto {
   @IsOptional() @IsString() customContent?: string;
   @IsOptional() @IsString() customMediaUrl?: string;
   @IsOptional() @IsString() customAuthorName?: string;
+  @IsOptional() @IsString() mfaCode?: string;
 }

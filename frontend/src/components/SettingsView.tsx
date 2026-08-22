@@ -28,7 +28,7 @@ export const SettingsView: React.FC = () => {
   const [formData, setFormData] = useState({ ...settings });
   const [isSaving, setIsSaving] = useState(false);
 
-  const canEdit = user.role === 'admin';
+  const canEdit = user.role === 'super_admin';
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

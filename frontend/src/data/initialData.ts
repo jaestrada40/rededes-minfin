@@ -675,7 +675,7 @@ export const INITIAL_AUDIT_LOGS: AuditLogEntry[] = [
     timestamp: '2026-08-19 14:50:18',
     userEmail: 'mcalderon@minfin.gob.gt',
     userName: 'Licda. Mayra Calderón',
-    userRole: 'auditor',
+    userRole: 'super_admin',
     action: 'Consulta y exportación de registros de auditoría',
     module: 'Seguridad',
     ipAddress: '192.168.10.24',

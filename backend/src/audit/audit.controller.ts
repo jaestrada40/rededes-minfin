@@ -9,7 +9,7 @@ import { AuditService } from './audit.service';
 export class AuditController {
   constructor(private readonly audit: AuditService) {}
 
-  @Roles('admin', 'auditor')
+  @Roles('super_admin')
   @Get()
   findAll() {
     return this.audit.findAll();

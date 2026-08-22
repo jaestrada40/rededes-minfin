@@ -16,6 +16,7 @@ import * as auditApi from '../api/audit';
 import * as usersApi from '../api/users';
 import { ApiError, onSessionExpire } from '../api/client';
 import { BackendFeedDetail, BackendSocialPost, BackendWordPressPortal } from '../api/feeds';
+import { MfaCountdown } from '../components/MfaCountdown';
 
 export type ActiveTab = 'dashboard' | 'feeds' | 'feed-detail' | 'portals' | 'preview' | 'users' | 'audit' | 'settings';
 
@@ -24,6 +25,10 @@ interface AppContextType {
   isAuthenticated: boolean;
   isMfaVerified: boolean;
   authLoading: boolean;
+  // false hasta que /settings responde por primera vez (éxito o error) —
+  // permite mostrar un skeleton para el logo en vez de un ícono genérico
+  // mientras la base de datos no responde.
+  settingsLoaded: boolean;
   authError: string | null;
   user: UserProfile;
   login: (email: string, password: string) => Promise<{ requiresMfaSetup?: boolean; requiresMfaCode?: boolean } | null>;
@@ -64,11 +69,11 @@ interface AppContextType {
   duplicateFeed: (id: string) => Promise<void>;
 
   // Post Actions
-  addPost: (feedId: string, postInput: { urlOrId: string; network: SocialNetworkType; customContent?: string; customMediaUrl?: string; customAuthorName?: string }) => Promise<{ success: boolean; message: string }>;
-  removePostFromFeed: (feedId: string, postId: string) => Promise<void>;
-  deletePostPermanently: (postId: string) => Promise<void>;
+  addPost: (feedId: string, postInput: { urlOrId: string; network: SocialNetworkType; customContent?: string; customMediaUrl?: string; customAuthorName?: string; mfaCode?: string }) => Promise<{ success: boolean; message: string }>;
+  removePostFromFeed: (feedId: string, postId: string, mfaCode?: string) => Promise<void>;
+  deletePostPermanently: (postId: string, mfaCode?: string) => Promise<void>;
   reorderPostsInFeed: (feedId: string, startIndex: number, endIndex: number) => Promise<void>;
-  updatePostContent: (postId: string, newContent: string) => Promise<void>;
+  updatePostContent: (postId: string, newContent: string, mfaCode?: string) => Promise<void>;
 
   // Portal Actions
   assignFeedToPortals: (feedId: string, portalIds: string[]) => Promise<void>;
@@ -88,6 +93,11 @@ interface AppContextType {
 
   // Confirmation dialog (replaces window.confirm)
   requestConfirm: (message: string, options?: { title?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
+
+  // MFA step-up confirmation for sensitive post actions. Resolves to the
+  // entered code, '' if the user has no MFA configured (nothing to ask), or
+  // null if the user cancelled.
+  requestMfaConfirm: (message: string, options?: { title?: string; confirmLabel?: string }) => Promise<string | null>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -96,7 +106,7 @@ const EMPTY_USER: UserProfile = {
   id: '',
   name: '',
   email: '',
-  role: 'viewer',
+  role: 'editor',
   department: '',
   mfaEnabled: false,
   isActive: true,
@@ -207,7 +217,7 @@ function toAuditEntry(ba: auditApi.BackendAuditLog): AuditLogEntry {
   };
 }
 
-const AUDIT_ROLES = ['admin', 'auditor'];
+const AUDIT_ROLES = ['super_admin'];
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -285,6 +295,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setConfirmState(null);
   };
 
+  // Solicita el código MFA actual para confirmar una acción sensible sobre
+  // publicaciones (agregar, editar, quitar de un feed, borrar definitivo).
+  // Devuelve null si el usuario cancela, o si no tiene MFA configurado
+  // (en cuyo caso ni siquiera se muestra el diálogo).
+  const [mfaConfirmState, setMfaConfirmState] = useState<{ message: string; title?: string; confirmLabel?: string } | null>(null);
+  const mfaConfirmResolveRef = useRef<((code: string | null) => void) | null>(null);
+
+  const requestMfaConfirm = useCallback(
+    (message: string, options?: { title?: string; confirmLabel?: string }): Promise<string | null> => {
+      // Sin MFA configurado no hay nada que re-verificar: se procede directo.
+      if (!user?.mfaEnabled) return Promise.resolve('');
+      return new Promise((resolve) => {
+        mfaConfirmResolveRef.current = resolve;
+        setMfaConfirmState({ message, ...options });
+      });
+    },
+    [user]
+  );
+
+  const resolveMfaConfirm = (code: string | null) => {
+    mfaConfirmResolveRef.current?.(code);
+    mfaConfirmResolveRef.current = null;
+    setMfaConfirmState(null);
+  };
+
   const loadFeeds = useCallback(async () => {
     const backendFeeds = await feedsApi.listFeeds();
     setFeeds(backendFeeds.map(toFeed));
@@ -296,9 +331,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPortals(backendPortals.map(toPortal));
   }, []);
 
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+
   const loadSettings = useCallback(async () => {
-    const backendSettings = await settingsApi.getSettings();
-    setSettings(toSettings(backendSettings));
+    try {
+      const backendSettings = await settingsApi.getSettings();
+      setSettings(toSettings(backendSettings));
+    } finally {
+      setSettingsLoaded(true);
+    }
   }, []);
 
   const loadAuditLogs = useCallback(async (role: string) => {
@@ -505,7 +546,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showNotification(`Feed duplicado: "${copy.name}".`, 'info');
   };
 
-  const addPost = async (feedId: string, postInput: { urlOrId: string; network: SocialNetworkType; customContent?: string; customMediaUrl?: string; customAuthorName?: string }) => {
+  const addPost = async (feedId: string, postInput: { urlOrId: string; network: SocialNetworkType; customContent?: string; customMediaUrl?: string; customAuthorName?: string; mfaCode?: string }) => {
     const result = await feedsApi.addPostToFeed(feedId, postInput);
     if (result.success) {
       await loadFeeds();
@@ -515,14 +556,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: result.success, message: result.message };
   };
 
-  const removePostFromFeed = async (feedId: string, postId: string) => {
-    await feedsApi.removePostFromFeed(feedId, postId);
+  const removePostFromFeed = async (feedId: string, postId: string, mfaCode?: string) => {
+    await feedsApi.removePostFromFeed(feedId, postId, mfaCode);
     await loadFeeds();
     showNotification('Publicación eliminada del feed central y desvinculada de los portales.', 'info');
   };
 
-  const deletePostPermanently = async (postId: string) => {
-    await feedsApi.deletePostPermanently(postId);
+  const deletePostPermanently = async (postId: string, mfaCode?: string) => {
+    await feedsApi.deletePostPermanently(postId, mfaCode);
     await loadFeeds();
     showNotification('Publicación eliminada permanentemente de la base de datos.', 'warning');
   };
@@ -538,8 +579,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showNotification('Nuevo orden de publicaciones guardado.', 'success');
   };
 
-  const updatePostContent = async (postId: string, newContent: string) => {
-    await feedsApi.updatePostContent(postId, newContent);
+  const updatePostContent = async (postId: string, newContent: string, mfaCode?: string) => {
+    await feedsApi.updatePostContent(postId, newContent, mfaCode);
     await loadFeeds();
     showNotification('Contenido de publicación actualizado.', 'success');
   };
@@ -645,6 +686,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isAuthenticated,
         isMfaVerified,
         authLoading,
+        settingsLoaded,
         authError,
         user,
         login,
@@ -690,10 +732,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateSettings,
         notification,
         showNotification,
-        requestConfirm
+        requestConfirm,
+        requestMfaConfirm
       }}
     >
       {children}
+      {mfaConfirmState && (
+        <MfaConfirmDialog
+          message={mfaConfirmState.message}
+          title={mfaConfirmState.title}
+          confirmLabel={mfaConfirmState.confirmLabel}
+          onCancel={() => resolveMfaConfirm(null)}
+          onConfirm={(code) => resolveMfaConfirm(code)}
+        />
+      )}
       {confirmState && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-300 max-w-sm w-full p-5 space-y-4">
@@ -725,6 +777,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     </AppContext.Provider>
   );
 };
+
+function MfaConfirmDialog({
+  message,
+  title,
+  confirmLabel,
+  onCancel,
+  onConfirm
+}: {
+  message: string;
+  title?: string;
+  confirmLabel?: string;
+  onCancel: () => void;
+  onConfirm: (code: string) => void;
+}) {
+  const [code, setCode] = useState('');
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+      <div className="bg-white rounded-xl shadow-2xl border border-slate-300 max-w-sm w-full p-5 space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-bold text-slate-900">{title || 'Confirmación MFA requerida'}</h3>
+          <MfaCountdown />
+        </div>
+        <p className="text-xs text-slate-600 leading-relaxed">{message}</p>
+        <input
+          type="text"
+          inputMode="numeric"
+          maxLength={6}
+          autoFocus
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+          placeholder="000000"
+          className="w-full text-center tracking-[0.3em] text-lg font-mono border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0072ce]"
+        />
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold text-xs cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={code.trim().length === 0}
+            onClick={() => onConfirm(code.trim())}
+            className="px-4 py-2 bg-[#003876] hover:bg-[#002d5e] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold text-xs cursor-pointer"
+          >
+            {confirmLabel || 'Confirmar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export const useApp = () => {
   const context = useContext(AppContext);

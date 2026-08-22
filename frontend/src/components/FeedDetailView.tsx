@@ -45,6 +45,7 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
     openFeedPreview,
     settings,
     requestConfirm,
+    requestMfaConfirm,
     user
   } = useApp();
 
@@ -59,7 +60,7 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const canEdit = user.role === 'admin' || user.role === 'editor';
+  const canEdit = user.role === 'super_admin' || user.role === 'admin' || user.role === 'editor';
 
   // Mantiene la pestaña de red sincronizada con el feed activo: al cambiar de
   // feed por el selector, el formulario de "agregar publicación" debe quedar
@@ -149,9 +150,16 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
 
     const cleanedUrlOrId = extractPostUrl(inputUrlOrId);
 
+    const mfaCode = await requestMfaConfirm('Ingrese su código MFA actual para confirmar el registro de esta publicación.', {
+      title: 'Confirmación MFA requerida',
+      confirmLabel: 'Agregar publicación'
+    });
+    if (mfaCode === null) return;
+
     const result = await addPost(currentFeed.id, {
       urlOrId: cleanedUrlOrId,
-      network: activeNetworkTab
+      network: activeNetworkTab,
+      mfaCode: mfaCode || undefined
     });
 
     if (!result.success) {
@@ -173,8 +181,14 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
     }
   };
 
-  const handleSaveEdit = (postId: string) => {
-    updatePostContent(postId, editContentText);
+  const handleSaveEdit = async (postId: string) => {
+    const mfaCode = await requestMfaConfirm('Ingrese su código MFA actual para confirmar la edición de esta publicación.', {
+      title: 'Confirmación MFA requerida',
+      confirmLabel: 'Guardar cambios'
+    });
+    if (mfaCode === null) return;
+
+    await updatePostContent(postId, editContentText, mfaCode || undefined);
     setEditingPostId(null);
   };
 
@@ -589,7 +603,13 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
                             `¿Confirma eliminar la publicación ${post.postId} de este feed? Los portales WordPress se actualizarán inmediatamente.`,
                             { title: 'Eliminar publicación', confirmLabel: 'Eliminar', danger: true }
                           );
-                          if (ok) removePostFromFeed(currentFeed.id, post.id);
+                          if (!ok) return;
+                          const mfaCode = await requestMfaConfirm(
+                            'Ingrese su código MFA actual para confirmar la eliminación de esta publicación del feed.',
+                            { title: 'Confirmación MFA requerida', confirmLabel: 'Eliminar del feed' }
+                          );
+                          if (mfaCode === null) return;
+                          removePostFromFeed(currentFeed.id, post.id, mfaCode || undefined);
                         }}
                         className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded border border-slate-200 cursor-pointer"
                         title="Eliminar del feed"
@@ -598,14 +618,20 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
                       </button>
                     )}
 
-                    {user.role === 'admin' && (
+                    {(user.role === 'super_admin' || user.role === 'admin') && (
                       <button
                         onClick={async () => {
                           const ok = await requestConfirm(
                             `¿Eliminar permanentemente la publicación ${post.postId} de la base de datos? Se quitará de todos los feeds donde esté vinculada. Úselo cuando el contenido guardado esté desactualizado — la próxima vez que agregue esta misma URL, el sistema volverá a buscar el contenido real.`,
                             { title: 'Eliminar de la base de datos', confirmLabel: 'Eliminar permanentemente', danger: true }
                           );
-                          if (ok) deletePostPermanently(post.id);
+                          if (!ok) return;
+                          const mfaCode = await requestMfaConfirm(
+                            'Ingrese su código MFA actual para confirmar la eliminación permanente de esta publicación de la base de datos.',
+                            { title: 'Confirmación MFA requerida', confirmLabel: 'Eliminar permanentemente' }
+                          );
+                          if (mfaCode === null) return;
+                          deletePostPermanently(post.id, mfaCode || undefined);
                         }}
                         className="p-1.5 text-red-800 hover:text-white hover:bg-red-700 rounded border border-red-200 cursor-pointer"
                         title="Eliminar permanentemente de la base de datos (fuerza recarga de datos reales)"

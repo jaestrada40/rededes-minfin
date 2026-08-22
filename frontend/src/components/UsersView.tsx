@@ -5,17 +5,15 @@ import { Users, Plus, UserCircle, Pencil, X, Search, Ban, CheckCircle2, ShieldOf
 import { UserProfile, UserRole } from '../types';
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  admin: 'Administrador DTI',
-  editor: 'Gestor de Contenido',
-  auditor: 'Auditor de Control Interno',
-  viewer: 'Consulta'
+  super_admin: 'Super Administrador (DTI)',
+  admin: 'Administrador (Comunicación Social)',
+  editor: 'Gestor de Contenido'
 };
 
 const ROLE_BADGE: Record<UserRole, string> = {
+  super_admin: 'bg-purple-100 text-purple-800 border-purple-300',
   admin: 'bg-blue-100 text-blue-800 border-blue-300',
-  editor: 'bg-emerald-100 text-emerald-800 border-emerald-300',
-  auditor: 'bg-amber-100 text-amber-800 border-amber-300',
-  viewer: 'bg-slate-100 text-slate-800 border-slate-300'
+  editor: 'bg-emerald-100 text-emerald-800 border-emerald-300'
 };
 
 const PAGE_SIZE = 8;
@@ -25,7 +23,10 @@ type ModalMode = { kind: 'create' } | { kind: 'edit'; target: UserProfile } | nu
 export const UsersView: React.FC = () => {
   const { user, users, requestConfirm, createUser, updateUser, updateUserRole, setUserActive, resetUserMfa, adminSetUserPassword } = useApp();
 
-  const canEdit = user.role === 'admin';
+  const canEdit = user.role === 'super_admin' || user.role === 'admin';
+  // Solo un super administrador (DTI) puede otorgar el rol de mayor
+  // privilegio; un admin de Comunicación Social no ve esa opción.
+  const assignableRoles: UserRole[] = user.role === 'super_admin' ? ['super_admin', 'admin', 'editor'] : ['admin', 'editor'];
 
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
@@ -36,7 +37,7 @@ export const UsersView: React.FC = () => {
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
   const [passwordResetError, setPasswordResetError] = useState('');
 
-  const [form, setForm] = useState({ email: '', password: '', name: '', role: 'viewer' as UserRole, department: '' });
+  const [form, setForm] = useState({ email: '', password: '', name: '', role: 'editor' as UserRole, department: '' });
 
   const filteredUsers = useMemo(() => {
     const term = searchTerm.toLowerCase();
@@ -46,7 +47,7 @@ export const UsersView: React.FC = () => {
   const paginatedUsers = filteredUsers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const openCreateModal = () => {
-    setForm({ email: '', password: '', name: '', role: 'viewer', department: '' });
+    setForm({ email: '', password: '', name: '', role: 'editor', department: '' });
     setModal({ kind: 'create' });
   };
 
@@ -271,6 +272,8 @@ export const UsersView: React.FC = () => {
                     <input
                       type="email"
                       required
+                      autoComplete="off"
+                      name="new-user-email"
                       value={form.email}
                       onChange={(e) => setForm({ ...form, email: e.target.value })}
                       className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-[#003876]"
@@ -283,6 +286,8 @@ export const UsersView: React.FC = () => {
                       type="password"
                       required
                       minLength={8}
+                      autoComplete="new-password"
+                      name="new-user-password"
                       value={form.password}
                       onChange={(e) => setForm({ ...form, password: e.target.value })}
                       className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-[#003876]"
@@ -367,6 +372,8 @@ export const UsersView: React.FC = () => {
                         <input
                           type="password"
                           minLength={8}
+                          autoComplete="new-password"
+                          name="reset-user-password"
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="Mínimo 8 caracteres"
@@ -375,6 +382,8 @@ export const UsersView: React.FC = () => {
                         <input
                           type="password"
                           minLength={8}
+                          autoComplete="new-password"
+                          name="reset-user-password-confirm"
                           value={newPasswordConfirm}
                           onChange={(e) => setNewPasswordConfirm(e.target.value)}
                           placeholder="Confirmar contraseña"
@@ -397,7 +406,7 @@ export const UsersView: React.FC = () => {
                   onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-800 cursor-pointer focus:outline-none focus:border-[#003876]"
                 >
-                  {(Object.keys(ROLE_LABELS) as UserRole[]).map(r => (
+                  {assignableRoles.map(r => (
                     <option key={r} value={r}>{ROLE_LABELS[r]}</option>
                   ))}
                 </select>
