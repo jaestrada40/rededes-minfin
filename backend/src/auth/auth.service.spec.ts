@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
+import { AttemptLimiterService } from './attempt-limiter.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -50,6 +51,9 @@ describe('AuthService', () => {
         { provide: UsersService, useValue: usersMock },
         { provide: AuditService, useValue: auditMock },
         { provide: SettingsService, useValue: settingsMock },
+        // Instancia real: es un contador en memoria sin dependencias, y así
+        // las pruebas ejercitan el límite de intentos de verdad.
+        AttemptLimiterService,
       ],
     }).compile();
     service = moduleRef.get(AuthService);
@@ -77,5 +81,46 @@ describe('AuthService', () => {
     const tokens = await service.mfaSetupVerify(verifyToken, code);
     expect(tokens.accessToken).toBeDefined();
     expect(tokens.refreshToken).toBeDefined();
+  });
+
+  it('locks the account after repeated failed logins instead of allowing unlimited guesses', async () => {
+    for (let i = 0; i < 5; i++) {
+      await expect(service.login('a@minfin.gob.gt', 'wrong')).rejects.toThrow('Credenciales inválidas');
+    }
+
+    // El sexto intento ya no llega a comparar la contraseña: responde 429.
+    await expect(service.login('a@minfin.gob.gt', 'wrong')).rejects.toMatchObject({
+      status: 429,
+    });
+    // Incluso con la contraseña correcta, el bloqueo sigue vigente.
+    await expect(service.login('a@minfin.gob.gt', 'Password123!')).rejects.toMatchObject({
+      status: 429,
+    });
+  });
+
+  it('locks MFA step-up verification after repeated invalid codes', async () => {
+    prismaMock.mfaSettings.findUnique = jest
+      .fn()
+      .mockResolvedValue({ secretEncrypted: (service as any).encryptSecret(authenticator.generateSecret()) });
+
+    for (let i = 0; i < 5; i++) {
+      expect(await service.verifyMfaCode('u-stepup', '000000')).toBe(false);
+    }
+
+    await expect(service.verifyMfaCode('u-stepup', '000000')).rejects.toMatchObject({ status: 429 });
+  });
+
+  it('does not skip the bcrypt comparison when the email is unknown', async () => {
+    usersMock.findByEmail.mockResolvedValueOnce(null);
+
+    const start = process.hrtime.bigint();
+    await expect(service.login('nadie@minfin.gob.gt', 'cualquiera')).rejects.toThrow('Credenciales inválidas');
+    const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+
+    // Un bcrypt con factor de costo 10 tarda decenas de milisegundos; la ruta
+    // que omitía la comparación resolvía en menos de uno. Si este tiempo cae,
+    // la comparación señuelo desapareció y el login vuelve a ser un oráculo
+    // para enumerar qué correos tienen cuenta.
+    expect(elapsedMs).toBeGreaterThan(10);
   });
 });

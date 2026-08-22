@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthService } from './auth.service';
+import { AttemptLimiterService } from './attempt-limiter.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
@@ -10,7 +11,7 @@ import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [PassportModule, JwtModule.register({}), UsersModule, AuditModule, SettingsModule],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, AttemptLimiterService, JwtStrategy],
   controllers: [AuthController],
   exports: [AuthService],
 })

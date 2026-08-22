@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
+import { AttemptLimiterService } from './attempt-limiter.service';
 
 export interface TokenPair {
   accessToken: string;
@@ -16,13 +17,30 @@ export interface TokenPair {
 
 @Injectable()
 export class AuthService {
+  // Hash señuelo con el mismo factor de costo (10) que los reales, sobre una
+  // contraseña aleatoria que nadie conoce: se usa para que el login gaste el
+  // mismo tiempo cuando el correo no existe. Nunca puede coincidir.
+  private static readonly DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly jwt: JwtService,
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
+    private readonly attempts: AttemptLimiterService,
   ) {}
+
+  // Rechaza el intento si la llave está bloqueada por fallos acumulados.
+  private assertNotLocked(key: string): void {
+    const retryAfter = this.attempts.retryAfterSeconds(key);
+    if (retryAfter !== null) {
+      throw new HttpException(
+        `Demasiados intentos fallidos. Vuelva a intentar en ${Math.ceil(retryAfter / 60)} minuto(s).`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
 
   private signInternal(payload: Record<string, unknown>): string {
     return this.jwt.sign(payload, { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '5m' });
@@ -58,25 +76,49 @@ export class AuthService {
   // ya configurado del usuario.
   async verifyMfaCode(userId: string, code: string): Promise<boolean> {
     if (!code) return false;
+
+    // Mismo límite que en el login: sin él, estas acciones sensibles serían
+    // otro camino para adivinar el código TOTP por fuerza bruta.
+    const attemptKey = `mfa-stepup:${userId}`;
+    this.assertNotLocked(attemptKey);
+
     const settings = await this.prisma.mfaSettings.findUnique({ where: { userId } });
     if (!settings) return false;
-    return authenticator.check(code, this.decryptSecret(settings.secretEncrypted));
+
+    const valid = authenticator.check(code, this.decryptSecret(settings.secretEncrypted));
+    if (valid) {
+      this.attempts.reset(attemptKey);
+    } else {
+      this.attempts.recordFailure(attemptKey);
+    }
+    return valid;
   }
 
   async login(email: string, password: string) {
+    const attemptKey = `login:${email.toLowerCase()}`;
+    this.assertNotLocked(attemptKey);
+
     const user = await this.users.findByEmail(email);
-    const valid = user ? await bcrypt.compare(password, user.passwordHash) : false;
+    // Se compara siempre, incluso sin usuario: contra un hash señuelo del mismo
+    // factor de costo. Si se omitiera bcrypt en la rama "correo desconocido",
+    // la diferencia de tiempo revelaría qué direcciones tienen cuenta.
+    const valid = await bcrypt.compare(password, user?.passwordHash ?? AuthService.DUMMY_PASSWORD_HASH);
 
     if (!user || !valid) {
+      const locked = this.attempts.recordFailure(attemptKey);
       await this.audit.log({
         userEmail: email,
         userRole: 'desconocido',
-        action: 'Intento de inicio de sesión',
+        action: locked
+          ? 'Intento de inicio de sesión; cuenta bloqueada temporalmente por intentos fallidos'
+          : 'Intento de inicio de sesión',
         module: 'Seguridad',
         result: 'Fallido',
       });
       throw new UnauthorizedException('Credenciales inválidas');
     }
+
+    this.attempts.reset(attemptKey);
 
     if (!user.isActive) {
       await this.audit.log({
@@ -131,13 +173,19 @@ export class AuthService {
     };
     if (payload.purpose !== 'mfa-setup-verify') throw new UnauthorizedException('Token inválido');
 
+    const attemptKey = `mfa-setup:${payload.userId}`;
+    this.assertNotLocked(attemptKey);
+
     const validCode = authenticator.check(code, payload.secret);
     if (!validCode) {
+      const locked = this.attempts.recordFailure(attemptKey);
       await this.audit.log({
         userId: payload.userId,
         userEmail: 'desconocido',
         userRole: 'desconocido',
-        action: 'Código MFA inválido durante configuración',
+        action: locked
+          ? 'Código MFA inválido durante configuración; verificación bloqueada temporalmente'
+          : 'Código MFA inválido durante configuración',
         module: 'MFA',
         result: 'Fallido',
         ipAddress: ip,
@@ -145,6 +193,7 @@ export class AuthService {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
+    this.attempts.reset(attemptKey);
     await this.prisma.mfaSettings.create({
       data: { userId: payload.userId, secretEncrypted: this.encryptSecret(payload.secret), verifiedAt: new Date() },
     });
@@ -160,15 +209,24 @@ export class AuthService {
     };
     if (payload.purpose !== 'mfa-challenge') throw new UnauthorizedException('Token inválido');
 
+    // El bloqueo se lleva por usuario, no por challengeToken: el token es un
+    // JWT sin estado y el atacante puede acuñar uno nuevo cada 5 minutos, así
+    // que contar por token no limitaría nada.
+    const attemptKey = `mfa:${payload.userId}`;
+    this.assertNotLocked(attemptKey);
+
     const settings = await this.prisma.mfaSettings.findUnique({ where: { userId: payload.userId } });
     const validCode = settings ? authenticator.check(code, this.decryptSecret(settings.secretEncrypted)) : false;
 
     if (!validCode) {
+      const locked = this.attempts.recordFailure(attemptKey);
       await this.audit.log({
         userId: payload.userId,
         userEmail: 'desconocido',
         userRole: 'desconocido',
-        action: 'Código MFA inválido en inicio de sesión',
+        action: locked
+          ? 'Código MFA inválido en inicio de sesión; verificación bloqueada temporalmente'
+          : 'Código MFA inválido en inicio de sesión',
         module: 'MFA',
         result: 'Fallido',
         ipAddress: ip,
@@ -176,6 +234,7 @@ export class AuthService {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
+    this.attempts.reset(attemptKey);
     await this.prisma.user.update({ where: { id: payload.userId }, data: { lastLoginAt: new Date() } });
     return this.issueTokens(payload.userId, ip);
   }
