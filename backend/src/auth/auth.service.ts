@@ -52,6 +52,17 @@ export class AuthService {
     return payload.secret;
   }
 
+  // Re-verificación de MFA ("step-up") para acciones sensibles ya
+  // autenticadas (p. ej. crear un feed) — a diferencia del login, aquí no se
+  // emiten tokens nuevos, solo se confirma el código TOTP contra el secreto
+  // ya configurado del usuario.
+  async verifyMfaCode(userId: string, code: string): Promise<boolean> {
+    if (!code) return false;
+    const settings = await this.prisma.mfaSettings.findUnique({ where: { userId } });
+    if (!settings) return false;
+    return authenticator.check(code, this.decryptSecret(settings.secretEncrypted));
+  }
+
   async login(email: string, password: string) {
     const user = await this.users.findByEmail(email);
     const valid = user ? await bcrypt.compare(password, user.passwordHash) : false;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { SocialIcon, WordPressIcon, networkLabel } from './OfficialLogos';
-import { X, Plus, Save, Layers, Globe, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, Plus, Save, Layers, Globe, CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { SocialNetworkType, FeedStatus, Feed } from '../types';
 
 interface CreateFeedModalProps {
@@ -11,7 +11,7 @@ interface CreateFeedModalProps {
 }
 
 export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClose, editFeedId }) => {
-  const { feeds, portals, createFeed, updateFeed, settings, showNotification, requestConfirm } = useApp();
+  const { feeds, portals, createFeed, updateFeed, settings, showNotification, requestConfirm, user } = useApp();
 
   const editFeed = editFeedId ? feeds.find(f => f.id === editFeedId) : null;
 
@@ -26,6 +26,7 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
   const [showMetrics, setShowMetrics] = useState<boolean>(true);
   const [showMedia, setShowMedia] = useState<boolean>(true);
   const [autoSlug, setAutoSlug] = useState<boolean>(true);
+  const [mfaCode, setMfaCode] = useState('');
 
   useEffect(() => {
     if (editFeed) {
@@ -53,6 +54,7 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
       setShowMedia(true);
       setAutoSlug(true);
     }
+    setMfaCode('');
   }, [editFeed, isOpen]);
 
   const handleNameChange = (val: string) => {
@@ -97,6 +99,11 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
       return;
     }
 
+    if (!editFeed && user.mfaEnabled && !mfaCode.trim()) {
+      showNotification('Ingrese su código MFA actual para confirmar la creación del feed.', 'error');
+      return;
+    }
+
     if (!editFeed && network !== 'mixed') {
       const duplicate = feeds.find(f => f.network === network);
       if (duplicate) {
@@ -135,7 +142,7 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
           maxItemsDefault,
           showMetrics,
           showMedia
-        });
+        }, mfaCode.trim() || undefined);
       }
       onClose();
     } catch (err) {
@@ -305,6 +312,26 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
               })}
             </div>
           </div>
+
+          {!editFeed && user.mfaEnabled && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1.5">
+              <label className="flex items-center gap-1.5 font-bold text-amber-800">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Confirmación MFA requerida
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                placeholder="Código de 6 dígitos de su app de autenticación"
+                className="w-full bg-white border border-amber-300 rounded-lg p-2.5 text-slate-800 font-mono tracking-widest focus:outline-none focus:border-amber-500"
+              />
+              <p className="text-amber-700">Crear un feed distribuye contenido en los portales institucionales; confirme su identidad con el código actual de su app de autenticación.</p>
+            </div>
+          )}
 
           {/* Footer Actions */}
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">

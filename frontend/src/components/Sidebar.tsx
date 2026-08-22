@@ -8,7 +8,6 @@ import {
   Eye,
   ShieldAlert,
   Settings,
-  Radio,
   Users
 } from 'lucide-react';
 
@@ -17,19 +16,20 @@ interface SidebarProps {
   onCloseMobile?: () => void;
 }
 
-const MfLogo: React.FC<{ small?: boolean; logoUrl?: string }> = ({ small = false, logoUrl }) => {
+const MfLogo: React.FC<{ small?: boolean; large?: boolean; logoUrl?: string }> = ({ small = false, large = false, logoUrl }) => {
+  const boxClass = small ? 'w-10 h-10' : large ? 'w-full h-[110px]' : 'w-16 h-16';
   if (logoUrl) {
     return (
       <img
         src={logoUrl}
         alt="Logo institucional"
-        className={`${small ? 'w-10 h-10' : 'w-16 h-16'} object-contain rounded-[10px] shrink-0`}
+        className={`${boxClass} object-contain rounded-[10px] shrink-0`}
       />
     );
   }
   return (
     <div
-      className={`grid place-items-center shrink-0 ${small ? 'w-10 h-10 text-base' : 'w-16 h-16 text-2xl'} border-2 border-[#c99a43] rounded-[10px] text-white font-extrabold tracking-[-0.07em] bg-[#04183a]/35`}
+      className={`grid place-items-center shrink-0 ${boxClass} ${small ? 'text-base' : 'text-2xl'} border-2 border-[#c99a43] rounded-[10px] text-white font-extrabold tracking-[-0.07em] bg-[#04183a]/35`}
     >
       MF
     </div>
@@ -79,15 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpenMobile, onCloseMobile })
             style={{ background: 'repeating-linear-gradient(135deg, transparent 0 27px, #d9e9ff 28px 29px, transparent 30px 58px)' }}
           />
           <div className="relative z-10 flex items-center gap-4">
-            <MfLogo logoUrl={settings.logoUrl} />
-            <div>
-              <h1 className="m-0 mb-2 text-[1.38rem] font-bold leading-[1.1] tracking-[-0.035em]">
-                Gestor de<br />Redes Sociales
-              </h1>
-              <span className="inline-flex items-center gap-1.5 text-[#7fe2aa] text-[0.76rem] font-bold">
-                <Radio className="w-3 h-3 animate-pulse" /> Sincronizado
-              </span>
-            </div>
+            <MfLogo logoUrl={settings.logoUrl} large />
           </div>
         </header>
 

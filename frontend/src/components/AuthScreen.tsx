@@ -4,10 +4,8 @@ import { ShieldCheck, Lock, Mail, KeyRound, AlertCircle, ArrowRight, CheckCircle
 
 type Step = 'login' | 'mfa-setup' | 'mfa-verify';
 
-// Escudo institucional del gestor. Deliberadamente NO usa settings.logoUrl:
-// el logo real subido en Configuración es un sello delgado que se ve mal a
-// estos tamaños (probado, se veía roto/diminuto); este SVG siempre se ve
-// nítido, en grande o en las versiones pequeñas del badge/footer.
+// Escudo institucional de respaldo (badge "Acceso seguro" y fallback si no
+// hay logo subido en Configuración).
 const ShieldIcon: React.FC<{ small?: boolean; className?: string }> = ({ small = false, className = '' }) => (
   <svg
     viewBox="0 0 64 72"
@@ -28,33 +26,8 @@ const ShieldIcon: React.FC<{ small?: boolean; className?: string }> = ({ small =
 // Ilustración decorativa del edificio institucional del MINFIN (Centro Cívico),
 // de fondo en el panel de marca — se ve tanto en login como en los pasos de MFA
 // porque comparten el mismo panel.
-const CivicBuilding: React.FC = () => (
-  <svg
-    className="absolute pointer-events-none text-[#b5cbe9] opacity-[0.18] w-[min(850px,121%)] h-auto -left-[29%] -bottom-[19%] max-lg:w-[740px] max-lg:left-1/2 max-lg:-translate-x-1/2 max-lg:bottom-[-42%]"
-    viewBox="0 0 760 760"
-    aria-hidden="true"
-    fill="none"
-  >
-    <g stroke="currentColor" strokeWidth="2">
-      <path d="M35 682h690M78 651h604M111 620h538M148 592h464" />
-      <path d="M150 592V301h460v291M190 592V348h380v244M226 592V390h308v202" />
-      <path d="M126 301h508L380 126 126 301ZM182 288l198-133 198 133" />
-      <path d="M323 590V448h114v142M347 590V478h66v112M296 438h168M210 438h76M474 438h76" />
-      <path d="M232 410v-70h48v70M480 410v-70h48v70M260 592V470h55v122M445 592V470h55v122" />
-      <path d="M80 620v-88h70v88M610 620v-88h70v88" />
-      <path d="M365 126V73h30v53M350 73h60M356 59h48" />
-      <path d="M110 651V620M650 651V620M155 651V620M605 651V620" />
-    </g>
-    <g stroke="currentColor" strokeWidth="1.2" opacity=".72">
-      <path d="M0 690 155 535M0 563l120-120M760 704 584 528M760 578l-114-114" />
-      <circle cx="104" cy="210" r="44" /><circle cx="656" cy="210" r="44" />
-      <path d="M60 210h88M104 166v88M612 210h88M656 166v88" />
-    </g>
-  </svg>
-);
-
 export const AuthScreen: React.FC = () => {
-  const { login, mfaSetupBegin, mfaSetupComplete, mfaVerifyCode, authError } = useApp();
+  const { login, mfaSetupBegin, mfaSetupComplete, mfaVerifyCode, authError, settings } = useApp();
 
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -106,19 +79,25 @@ export const AuthScreen: React.FC = () => {
       <section
         aria-label="Ministerio de Finanzas Públicas"
         className="relative overflow-hidden grid place-items-center p-8 sm:p-12 lg:p-16 text-white min-h-[280px] lg:min-h-0"
-        style={{ background: 'linear-gradient(145deg, #123f7c 0%, #0c2a5a 56%, #071c40 100%)' }}
+        style={{
+          backgroundColor: '#0c2a5a',
+          backgroundImage: "url('/minfin-login-background.png')",
+          backgroundPosition: 'center',
+          backgroundSize: 'cover',
+          backgroundRepeat: 'no-repeat'
+        }}
       >
-        <div
-          className="absolute inset-0 opacity-20 pointer-events-none"
-          style={{
-            backgroundImage:
-              'linear-gradient(135deg, transparent 47%, rgba(255,255,255,.15) 48%, transparent 49%), linear-gradient(45deg, transparent 47%, rgba(255,255,255,.09) 48%, transparent 49%)',
-            backgroundSize: '185px 185px'
-          }}
-        />
-        <CivicBuilding />
+        <div className="absolute inset-0 bg-[#0c2a5a]/35 pointer-events-none" />
         <div className="relative z-[1] w-full max-w-[500px] text-center lg:text-left">
-          <ShieldIcon className="mx-auto lg:mx-0" />
+          {settings.logoUrl ? (
+            <img
+              src={settings.logoUrl}
+              alt="Logo institucional"
+              className="mx-auto lg:mx-0 h-[150px] w-auto max-w-full object-contain drop-shadow-[0_4px_18px_rgba(0,0,0,0.35)]"
+            />
+          ) : (
+            <ShieldIcon className="mx-auto lg:mx-0" />
+          )}
           <p className="mt-6 sm:mt-10 mb-3 sm:mb-4 font-bold text-xs sm:text-[0.84rem] tracking-[0.15em] uppercase text-white">
             Ministerio de Finanzas Públicas
           </p>

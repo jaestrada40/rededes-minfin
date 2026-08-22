@@ -82,10 +82,16 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
     }
   };
 
-  // Get posts for this feed in proper sequence
-  const feedPosts = (currentFeed?.postIds || [])
-    .map(id => posts.find(p => p.id === id))
-    .filter((p): p is SocialPost => p !== undefined);
+  // Get posts for this feed in proper sequence. Si el feed es de una sola red
+  // y la pestaña activa es de otra (no existe feed dedicado a esa red para
+  // redirigir), la lista debe quedar en blanco: de lo contrario se seguían
+  // mostrando las publicaciones del feed anterior bajo la pestaña equivocada.
+  const feedPosts =
+    currentFeed && currentFeed.network !== 'mixed' && currentFeed.network !== activeNetworkTab
+      ? []
+      : (currentFeed?.postIds || [])
+          .map(id => posts.find(p => p.id === id))
+          .filter((p): p is SocialPost => p !== undefined);
 
   const officialAccount = settings.officialAccounts[activeNetworkTab];
 
@@ -94,18 +100,42 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
       case 'x':
         return 'Ej: https://x.com/MinfinGT/status/1892837461928472910 o ID 1892837461928472910';
       case 'facebook':
-        return 'Ej: https://www.facebook.com/minfin.gt/posts/pfbid02KnM9QxLz18Rk3j o ID pfbid02KnM9QxLz';
+        return 'Pegue la URL del post, su ID, o el código <iframe> de "Insertar publicación" de Facebook';
       case 'instagram':
-        return 'Ej: https://www.instagram.com/p/DF3k9L1pQr8/ o ID DF3k9L1pQr8';
+        return 'Pegue la URL del post/reel, o el código <blockquote> de "Insertar" de Instagram';
       case 'youtube':
         return 'Ej: https://www.youtube.com/watch?v=dQw4w9WgXcQ o ID dQw4w9WgXcQ';
       case 'linkedin':
-        return 'Ej: https://www.linkedin.com/feed/update/urn:li:activity:7298374619283746192/ o ID 7298374619283746192';
+        return 'Pegue la URL del post, o el código <iframe> de "Insertar" (Embed) de LinkedIn';
       case 'tiktok':
         return 'Ej: https://www.tiktok.com/@minfingua/video/7392819283746192837 o ID 7392819283746192837';
       default:
         return 'Pegue la URL completa o el ID de la publicación';
     }
+  };
+
+  // Permite pegar directamente el código de embed oficial de Facebook,
+  // LinkedIn (<iframe>) o Instagram (<blockquote data-instgrm-permalink>):
+  // extrae la URL real del post, para no obligar al usuario a copiar la URL
+  // por separado.
+  const extractPostUrl = (raw: string): string => {
+    const trimmed = raw.trim();
+    const igMatch = trimmed.match(/data-instgrm-permalink=["']([^"']+)["']/i);
+    if (igMatch) return igMatch[1].replace(/&amp;/g, '&');
+
+    const srcMatch = trimmed.match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i);
+    const candidateUrl = (srcMatch ? srcMatch[1] : trimmed).replace(/&amp;/g, '&');
+
+    if (/facebook\.com\/plugins\/post\.php/i.test(candidateUrl)) {
+      try {
+        const href = new URL(candidateUrl).searchParams.get('href');
+        if (href) return href;
+      } catch {
+        // no era una URL válida, sigue con el texto extraído
+      }
+    }
+
+    return candidateUrl;
   };
 
   const handleAddPostSubmit = async (e: React.FormEvent) => {
@@ -117,8 +147,10 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
       return;
     }
 
+    const cleanedUrlOrId = extractPostUrl(inputUrlOrId);
+
     const result = await addPost(currentFeed.id, {
-      urlOrId: inputUrlOrId,
+      urlOrId: cleanedUrlOrId,
       network: activeNetworkTab
     });
 
@@ -353,6 +385,21 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
                     {activeNetworkTab === 'x' && (
                       <span className="block mt-0.5 text-blue-900 font-mono">
                         Ejemplo para X: <code className="bg-blue-100/80 px-1 rounded">https://x.com/MinfinGT/status/1892837461928472910</code> o ID <code className="bg-blue-100/80 px-1 rounded">1892837461928472910</code>
+                      </span>
+                    )}
+                    {activeNetworkTab === 'facebook' && (
+                      <span className="block mt-0.5 text-blue-900">
+                        También puede pegar directamente el código completo <code className="bg-blue-100/80 px-1 rounded">&lt;iframe&gt;</code> que genera "Insertar publicación" en Facebook — el sistema extrae la URL real automáticamente. No requiere ser administrador de la página ni token de la API.
+                      </span>
+                    )}
+                    {activeNetworkTab === 'linkedin' && (
+                      <span className="block mt-0.5 text-blue-900">
+                        También puede pegar directamente el código completo <code className="bg-blue-100/80 px-1 rounded">&lt;iframe&gt;</code> que genera la opción "Insertar" (Embed this post) de LinkedIn — el sistema extrae la URL real automáticamente. No requiere credenciales de LinkedIn.
+                      </span>
+                    )}
+                    {activeNetworkTab === 'instagram' && (
+                      <span className="block mt-0.5 text-blue-900">
+                        También puede pegar directamente el código <code className="bg-blue-100/80 px-1 rounded">&lt;blockquote&gt;</code> que genera "Insertar" (Embed) en Instagram — el sistema extrae la URL real automáticamente. No requiere credenciales de Instagram.
                       </span>
                     )}
                   </div>
