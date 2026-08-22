@@ -329,15 +329,18 @@ export class FeedsService {
   // Sin autenticación — consumido por el plugin de WordPress (server-to-server,
   // vía wp_remote_get) para renderizar el shortcode público. Solo expone lo
   // necesario para pintar la tarjeta; nada de auditoría ni datos internos.
+  // Solo se sirven feeds en estado "active": un borrador todavía no debe ser
+  // legible por nadie, y pausar un feed tiene que retirarlo de los portales de
+  // verdad. Los demás estados devuelven 404 —el mismo error que un slug
+  // inexistente— para no confirmarle al llamante que el feed existe.
   async findPublicBySlug(slug: string) {
-    const feed = await this.prisma.feed.findUniqueOrThrow({
-      where: { slug },
+    const feed = await this.prisma.feed.findFirst({
+      where: { slug, status: 'active' },
       select: {
         slug: true,
         name: true,
         description: true,
         network: true,
-        status: true,
         layoutDefault: true,
         maxItemsDefault: true,
         showMetrics: true,
@@ -366,6 +369,8 @@ export class FeedsService {
         },
       },
     });
+
+    if (!feed) throw new NotFoundException('Feed no encontrado');
 
     const settings = await this.settings.get();
     const officialAccounts = (settings.officialAccounts as Record<string, { avatarUrl?: string }>) || {};

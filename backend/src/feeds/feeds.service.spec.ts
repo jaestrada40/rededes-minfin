@@ -26,6 +26,7 @@ describe('FeedsService', () => {
       create: jest.fn().mockResolvedValue(feedRow),
       findMany: jest.fn().mockResolvedValue([feedRow]),
       findUniqueOrThrow: jest.fn().mockResolvedValue({ ...feedRow, posts: [], portals: [] }),
+      findFirst: jest.fn().mockResolvedValue({ ...feedRow, posts: [] }),
       update: jest.fn().mockResolvedValue(feedRow),
       delete: jest.fn().mockResolvedValue(feedRow),
     },
@@ -105,5 +106,23 @@ describe('FeedsService', () => {
   it('reorders posts by writing the order column for each FeedPost row', async () => {
     await service.reorderPosts('f1', ['p2', 'p1'], actor);
     expect(prismaMock.feedPost.update).toHaveBeenCalledTimes(2);
+  });
+
+  it('only serves active feeds publicly, so drafts and paused feeds stay hidden', async () => {
+    await service.findPublicBySlug('x-comunicados');
+
+    // El filtro por estado va en la consulta: un feed en borrador o pausado no
+    // debe ser legible por un llamante anónimo, y pausar tiene que retirarlo
+    // de los portales de verdad.
+    expect(prismaMock.feed.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { slug: 'x-comunicados', status: 'active' },
+      }),
+    );
+  });
+
+  it('returns 404 for a feed that exists but is not active', async () => {
+    prismaMock.feed.findFirst.mockResolvedValueOnce(null);
+    await expect(service.findPublicBySlug('borrador-interno')).rejects.toThrow('Feed no encontrado');
   });
 });

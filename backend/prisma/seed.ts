@@ -56,8 +56,21 @@ async function main() {
   // recibe el rol de mayor privilegio (super_admin), no "admin" (ese queda
   // para la jefatura de Comunicación Social, creada luego desde la UI).
   const superAdminRole = await prisma.role.findUniqueOrThrow({ where: { name: 'super_admin' } });
-  const email = process.env.SEED_ADMIN_EMAIL ?? 'admin@minfin.gob.gt';
-  const password = process.env.SEED_ADMIN_PASSWORD ?? 'ChangeMe123!';
+
+  // Sin valores por defecto: esta cuenta es el super_admin de DTI y su
+  // contraseña protege el endpoint /auth/login, alcanzable por red. Un
+  // literal aquí quedaría publicado en el repositorio y sería utilizable
+  // contra cualquier despliegue que corriera el seed sin configurar nada.
+  const email = process.env.SEED_ADMIN_EMAIL;
+  const password = process.env.SEED_ADMIN_PASSWORD;
+  if (!email || !password) {
+    throw new Error(
+      'SEED_ADMIN_EMAIL y SEED_ADMIN_PASSWORD son obligatorias para sembrar la cuenta de super administrador. ' +
+        'Genere una contraseña única por despliegue, por ejemplo:\n' +
+        '  export SEED_ADMIN_EMAIL="dti@minfin.gob.gt"\n' +
+        '  export SEED_ADMIN_PASSWORD="$(node -e \'console.log(require("crypto").randomBytes(24).toString("base64url"))\')"',
+    );
+  }
   const passwordHash = await bcrypt.hash(password, 10);
 
   await prisma.user.upsert({
