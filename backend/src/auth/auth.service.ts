@@ -65,10 +65,6 @@ export class AuthService {
     return plain.toString('utf8');
   }
 
-  decodeSetupSecret(token: string): string {
-    const payload = this.jwt.verify(token, { secret: process.env.JWT_ACCESS_SECRET }) as { secret: string };
-    return payload.secret;
-  }
 
   // Re-verificación de MFA ("step-up") para acciones sensibles ya
   // autenticadas (p. ej. crear un feed) — a diferencia del login, aquí no se
@@ -83,7 +79,8 @@ export class AuthService {
     this.assertNotLocked(attemptKey);
 
     const settings = await this.prisma.mfaSettings.findUnique({ where: { userId } });
-    if (!settings) return false;
+    // Un secreto todavía pendiente de verificar no sirve como segundo factor.
+    if (!settings?.verifiedAt) return false;
 
     const valid = authenticator.check(code, this.decryptSecret(settings.secretEncrypted));
     if (valid) {
@@ -154,11 +151,30 @@ export class AuthService {
     };
     if (payload.purpose !== 'mfa-setup') throw new UnauthorizedException('Token inválido');
 
+    // Nunca se vuelve a emitir un secreto para quien ya tiene MFA verificado:
+    // de lo contrario este endpoint sería una forma de reemplazar el segundo
+    // factor de otra persona.
+    const existing = await this.prisma.mfaSettings.findUnique({ where: { userId: payload.userId } });
+    if (existing?.verifiedAt) {
+      throw new UnauthorizedException('El MFA ya está configurado para esta cuenta.');
+    }
+
     const secret = authenticator.generateSecret();
     const otpauth = authenticator.keyuri('usuario', 'MINFIN Gestor Social', secret);
     const qrDataUrl = await QRCode.toDataURL(otpauth);
+
+    // El secreto se guarda cifrado del lado del servidor, en estado pendiente
+    // (verifiedAt null), y NO viaja en el token: un JWT va firmado pero no
+    // cifrado, así que cualquiera que lo intercepte podría decodificar su
+    // payload en base64 y quedarse con el secreto TOTP.
+    await this.prisma.mfaSettings.upsert({
+      where: { userId: payload.userId },
+      update: { secretEncrypted: this.encryptSecret(secret), verifiedAt: null },
+      create: { userId: payload.userId, secretEncrypted: this.encryptSecret(secret) },
+    });
+
     const verifyToken = this.jwt.sign(
-      { purpose: 'mfa-setup-verify', userId: payload.userId, secret },
+      { purpose: 'mfa-setup-verify', userId: payload.userId },
       { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '10m' },
     );
 
@@ -169,14 +185,20 @@ export class AuthService {
     const payload = this.jwt.verify(verifyToken, { secret: process.env.JWT_ACCESS_SECRET }) as {
       purpose: string;
       userId: string;
-      secret: string;
     };
     if (payload.purpose !== 'mfa-setup-verify') throw new UnauthorizedException('Token inválido');
 
     const attemptKey = `mfa-setup:${payload.userId}`;
     this.assertNotLocked(attemptKey);
 
-    const validCode = authenticator.check(code, payload.secret);
+    // El secreto se recupera del registro pendiente creado en mfaSetup; exigir
+    // verifiedAt null evita que este flujo reinicie un MFA ya configurado.
+    const pending = await this.prisma.mfaSettings.findUnique({ where: { userId: payload.userId } });
+    if (!pending || pending.verifiedAt) {
+      throw new UnauthorizedException('No hay una configuración de MFA pendiente para esta cuenta.');
+    }
+
+    const validCode = authenticator.check(code, this.decryptSecret(pending.secretEncrypted));
     if (!validCode) {
       const locked = this.attempts.recordFailure(attemptKey);
       await this.audit.log({
@@ -194,8 +216,10 @@ export class AuthService {
     }
 
     this.attempts.reset(attemptKey);
-    await this.prisma.mfaSettings.create({
-      data: { userId: payload.userId, secretEncrypted: this.encryptSecret(payload.secret), verifiedAt: new Date() },
+    // El secreto ya está almacenado; aquí solo se marca como verificado.
+    await this.prisma.mfaSettings.update({
+      where: { userId: payload.userId },
+      data: { verifiedAt: new Date() },
     });
     await this.prisma.user.update({ where: { id: payload.userId }, data: { mfaEnabled: true, lastLoginAt: new Date() } });
 
@@ -216,7 +240,9 @@ export class AuthService {
     this.assertNotLocked(attemptKey);
 
     const settings = await this.prisma.mfaSettings.findUnique({ where: { userId: payload.userId } });
-    const validCode = settings ? authenticator.check(code, this.decryptSecret(settings.secretEncrypted)) : false;
+    const validCode = settings?.verifiedAt
+      ? authenticator.check(code, this.decryptSecret(settings.secretEncrypted))
+      : false;
 
     if (!validCode) {
       const locked = this.attempts.recordFailure(attemptKey);
