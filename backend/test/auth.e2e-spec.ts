@@ -35,9 +35,14 @@ describe('Auth flow (e2e)', () => {
   });
 
   afterAll(async () => {
-    await prisma.refreshToken.deleteMany({});
-    await prisma.mfaSettings.deleteMany({});
-    await prisma.user.deleteMany({ where: { email } });
+    // Solo se limpia lo que creó esta suite: un deleteMany({}) global borraba
+    // el MFA de los usuarios de las otras suites, que Jest corre en paralelo.
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (user) {
+      await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+      await prisma.mfaSettings.deleteMany({ where: { userId: user.id } });
+      await prisma.user.delete({ where: { id: user.id } });
+    }
     await app.close();
   });
 

@@ -64,7 +64,11 @@ export class AttemptLimiterService {
     const record: AttemptRecord =
       existing && existing.expiresAt > now
         ? existing
-        : { failures: 0, expiresAt: now + AttemptLimiterService.WINDOW_MS, lockedUntil: null };
+        : {
+            failures: 0,
+            expiresAt: now + AttemptLimiterService.WINDOW_MS,
+            lockedUntil: null,
+          };
 
     record.failures += 1;
 
@@ -91,7 +95,10 @@ export class AttemptLimiterService {
    */
   private prune(now: number): void {
     for (const [key, record] of this.attempts) {
-      if (record.expiresAt <= now && (!record.lockedUntil || record.lockedUntil <= now)) {
+      if (
+        record.expiresAt <= now &&
+        (!record.lockedUntil || record.lockedUntil <= now)
+      ) {
         this.attempts.delete(key);
       }
     }

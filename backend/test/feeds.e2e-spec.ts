@@ -5,16 +5,45 @@ import * as bcrypt from 'bcrypt';
 import { authenticator } from 'otplib';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { AuthService } from '../src/auth/auth.service';
 
 describe('Feeds and portals flow (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let auth: AuthService;
   const email = 'e2e-feeds-admin@minfin.gob.gt';
   const password = 'Password123!';
-  const viewerEmail = 'e2e-feeds-viewer@minfin.gob.gt';
+  const editorEmail = 'e2e-feeds-editor@minfin.gob.gt';
   let accessToken: string;
-  let viewerAccessToken: string;
+  let editorAccessToken: string;
+  let adminSecret: string;
   let portalId: string;
+  // Nombre único por corrida: el slug se deriva del nombre y tiene índice
+  // único, así que un nombre fijo choca contra el feed de la corrida anterior.
+  const feedName = `Feed E2E ${Date.now()}`;
+  let createdFeedId: string | undefined;
+
+  /**
+   * Completa el alta de un usuario: login, configuración de MFA y verificación.
+   * El secreto TOTP ya no viaja en el token —queda cifrado del lado del
+   * servidor—, así que se lee del registro pendiente y se descifra.
+   */
+  async function enrollAndLogin(userEmail: string): Promise<{ accessToken: string; secret: string }> {
+    const loginRes = await request(app.getHttpServer()).post('/auth/login').send({ email: userEmail, password });
+    const setupRes = await request(app.getHttpServer())
+      .post('/auth/mfa/setup')
+      .send({ setupToken: loginRes.body.setupToken });
+
+    const { userId } = JSON.parse(Buffer.from(setupRes.body.verifyToken.split('.')[1], 'base64').toString());
+    const pending = await prisma.mfaSettings.findUniqueOrThrow({ where: { userId } });
+    const secret = (auth as any).decryptSecret(pending.secretEncrypted);
+
+    const verifyRes = await request(app.getHttpServer())
+      .post('/auth/mfa/setup/verify')
+      .send({ token: setupRes.body.verifyToken, code: authenticator.generate(secret) });
+
+    return { accessToken: verifyRes.body.accessToken, secret };
+  }
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -22,6 +51,7 @@ describe('Feeds and portals flow (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
     prisma = moduleRef.get(PrismaService);
+    auth = moduleRef.get(AuthService);
 
     const role = await prisma.role.upsert({ where: { name: 'admin' }, update: {}, create: { name: 'admin' } });
     await prisma.user.upsert({
@@ -39,62 +69,52 @@ describe('Feeds and portals flow (e2e)', () => {
         name: 'Portal E2E',
         domain: `e2e-${Date.now()}.minfin.gob.gt`,
         category: 'Institucional',
-        ipAddress: '127.0.0.1',
-        wpVersion: '6.5',
-        pluginVersion: '2.4.1',
         description: 'Portal de prueba e2e',
       },
     });
     portalId = portal.id;
 
-    const loginRes = await request(app.getHttpServer()).post('/auth/login').send({ email, password });
-    const setupRes = await request(app.getHttpServer())
-      .post('/auth/mfa/setup')
-      .send({ setupToken: loginRes.body.setupToken });
-    const secret = JSON.parse(Buffer.from(setupRes.body.verifyToken.split('.')[1], 'base64').toString()).secret;
-    const code = authenticator.generate(secret);
-    const verifyRes = await request(app.getHttpServer())
-      .post('/auth/mfa/setup/verify')
-      .send({ token: setupRes.body.verifyToken, code });
-    accessToken = verifyRes.body.accessToken;
+    const adminSession = await enrollAndLogin(email);
+    accessToken = adminSession.accessToken;
+    adminSecret = adminSession.secret;
 
-    const viewerRole = await prisma.role.upsert({
-      where: { name: 'viewer' },
+    // "editor" es el rol de menor privilegio tras la reestructura: puede
+    // gestionar contenido, pero no la configuración del sistema ni los
+    // portales WordPress (eso quedó reservado a super_admin).
+    const editorRole = await prisma.role.upsert({
+      where: { name: 'editor' },
       update: {},
-      create: { name: 'viewer' },
+      create: { name: 'editor' },
     });
     await prisma.user.upsert({
-      where: { email: viewerEmail },
+      where: { email: editorEmail },
       update: {},
       create: {
-        email: viewerEmail,
-        name: 'E2E Feeds Viewer',
+        email: editorEmail,
+        name: 'E2E Feeds Editor',
         passwordHash: await bcrypt.hash(password, 10),
-        roleId: viewerRole.id,
+        roleId: editorRole.id,
       },
     });
-    const viewerLoginRes = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: viewerEmail, password });
-    const viewerSetupRes = await request(app.getHttpServer())
-      .post('/auth/mfa/setup')
-      .send({ setupToken: viewerLoginRes.body.setupToken });
-    const viewerSecret = JSON.parse(
-      Buffer.from(viewerSetupRes.body.verifyToken.split('.')[1], 'base64').toString(),
-    ).secret;
-    const viewerCode = authenticator.generate(viewerSecret);
-    const viewerVerifyRes = await request(app.getHttpServer())
-      .post('/auth/mfa/setup/verify')
-      .send({ token: viewerSetupRes.body.verifyToken, code: viewerCode });
-    viewerAccessToken = viewerVerifyRes.body.accessToken;
+    editorAccessToken = (await enrollAndLogin(editorEmail)).accessToken;
   });
 
   afterAll(async () => {
+    if (createdFeedId) {
+      await prisma.feedPost.deleteMany({ where: { feedId: createdFeedId } });
+      await prisma.feedPortal.deleteMany({ where: { feedId: createdFeedId } });
+      await prisma.feed.deleteMany({ where: { id: createdFeedId } });
+    }
     await prisma.wordPressPortal.deleteMany({ where: { id: portalId } });
-    await prisma.refreshToken.deleteMany({});
-    await prisma.mfaSettings.deleteMany({});
-    await prisma.user.deleteMany({ where: { email } });
-    await prisma.user.deleteMany({ where: { email: viewerEmail } });
+    // Igual que en auth.e2e: se limpia solo lo propio, porque las suites
+    // comparten base de datos y Jest las corre en paralelo.
+    const users = await prisma.user.findMany({ where: { email: { in: [email, editorEmail] } } });
+    const userIds = users.map((u) => u.id);
+    if (userIds.length) {
+      await prisma.refreshToken.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.mfaSettings.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    }
     await app.close();
   });
 
@@ -102,14 +122,21 @@ describe('Feeds and portals flow (e2e)', () => {
     const createRes = await request(app.getHttpServer())
       .post('/feeds')
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: 'Feed E2E', description: 'desc', network: 'x' })
+      // Crear un feed y agregar publicaciones son acciones sensibles: con MFA
+      // configurado exigen re-confirmar con el código TOTP actual.
+      .send({ name: feedName, description: 'desc', network: 'x', mfaCode: authenticator.generate(adminSecret) })
       .expect(201);
     const feedId = createRes.body.id;
+    createdFeedId = feedId;
 
     await request(app.getHttpServer())
       .post(`/feeds/${feedId}/posts`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ urlOrId: 'https://x.com/MinfinGT/status/9988776655', network: 'x' })
+      .send({
+        urlOrId: 'https://x.com/MinfinGT/status/9988776655',
+        network: 'x',
+        mfaCode: authenticator.generate(adminSecret),
+      })
       .expect(201);
 
     await request(app.getHttpServer())
@@ -129,22 +156,50 @@ describe('Feeds and portals flow (e2e)', () => {
     expect(getRes.body.portals[0].portal.id).toBe(portalId);
   });
 
-  it('denies viewer role on admin/editor-only endpoints', async () => {
-    await request(app.getHttpServer())
-      .post('/feeds')
-      .set('Authorization', `Bearer ${viewerAccessToken}`)
-      .send({ name: 'Feed Viewer Denied', description: 'desc', network: 'x' })
-      .expect(403);
-
+  it('denies the editor role on super_admin-only endpoints', async () => {
+    // La configuración institucional y los portales WordPress son
+    // configuración técnica: solo super_admin (DTI).
     await request(app.getHttpServer())
       .patch('/settings')
-      .set('Authorization', `Bearer ${viewerAccessToken}`)
+      .set('Authorization', `Bearer ${editorAccessToken}`)
       .send({ institutionName: 'Hacked' })
       .expect(403);
 
     await request(app.getHttpServer())
       .post('/portals/sync-all')
-      .set('Authorization', `Bearer ${viewerAccessToken}`)
+      .set('Authorization', `Bearer ${editorAccessToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .post('/portals')
+      .set('Authorization', `Bearer ${editorAccessToken}`)
+      .send({ name: 'Portal Denegado', domain: 'no.minfin.gob.gt', category: 'Institucional', description: 'x' })
+      .expect(403);
+
+    // La bitácora de auditoría también quedó reservada a super_admin.
+    await request(app.getHttpServer())
+      .get('/audit')
+      .set('Authorization', `Bearer ${editorAccessToken}`)
+      .expect(403);
+  });
+
+  it('maps a duplicate slug to 409 instead of a 500, through the global filter', async () => {
+    // El filtro se registra vía APP_FILTER en CommonModule; si volviera a
+    // registrarse solo en main.ts, este caso respondería 500 en pruebas.
+    await request(app.getHttpServer())
+      .post('/feeds')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ name: feedName, description: 'duplicado', network: 'x', mfaCode: authenticator.generate(adminSecret) })
+      .expect(409);
+  });
+
+  it('denies the editor role on the admin-only permanent delete', async () => {
+    // Quitar una publicación de un feed lo puede hacer un editor, pero
+    // borrarla de la base de datos es de admin/super_admin.
+    await request(app.getHttpServer())
+      .delete('/posts/00000000-0000-0000-0000-000000000000')
+      .set('Authorization', `Bearer ${editorAccessToken}`)
+      .send({})
       .expect(403);
   });
 });

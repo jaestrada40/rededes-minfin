@@ -15,6 +15,36 @@ export interface TokenPair {
   refreshToken: string;
 }
 
+/**
+ * Resultado de login: o se emiten tokens, o se pide configurar/confirmar MFA.
+ * Cada variante declara los campos de las otras como opcionales e `undefined`
+ * para que TypeScript pueda discriminar la unión; sin eso, leer
+ * `result.requiresMfaSetup` es un error de tipos aunque el código sea correcto.
+ */
+export type LoginResult =
+  | (TokenPair & {
+      requiresMfaSetup?: undefined;
+      setupToken?: undefined;
+      requiresMfaCode?: undefined;
+      challengeToken?: undefined;
+    })
+  | {
+      requiresMfaSetup: true;
+      setupToken: string;
+      requiresMfaCode?: undefined;
+      challengeToken?: undefined;
+      accessToken?: undefined;
+      refreshToken?: undefined;
+    }
+  | {
+      requiresMfaCode: true;
+      challengeToken: string;
+      requiresMfaSetup?: undefined;
+      setupToken?: undefined;
+      accessToken?: undefined;
+      refreshToken?: undefined;
+    };
+
 @Injectable()
 export class AuthService {
   // Hash señuelo con el mismo factor de costo (10) que los reales, sobre una
@@ -91,7 +121,7 @@ export class AuthService {
     return valid;
   }
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string): Promise<LoginResult> {
     const attemptKey = `login:${email.toLowerCase()}`;
     this.assertNotLocked(attemptKey);
 

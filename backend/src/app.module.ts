@@ -8,10 +8,12 @@ import { AuthModule } from './auth/auth.module';
 import { SettingsModule } from './settings/settings.module';
 import { FeedsModule } from './feeds/feeds.module';
 import { PortalsModule } from './portals/portals.module';
+import { CommonModule } from './common/common.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    CommonModule,
     PrismaModule,
     RolesModule,
     UsersModule,
