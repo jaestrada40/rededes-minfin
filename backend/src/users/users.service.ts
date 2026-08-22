@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RolesService } from '../roles/roles.service';
@@ -27,19 +31,29 @@ export class UsersService {
     actor: { id: string; email: string; role: string },
   ): Promise<void> {
     if (actor.role === 'super_admin') return;
-    const target = await this.prisma.user.findUnique({ where: { id: userId }, include: { role: true } });
+    const target = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true },
+    });
     if (target?.role.name === 'super_admin') {
-      throw new BadRequestException('No tiene permisos para modificar una cuenta de super administrador.');
+      throw new BadRequestException(
+        'No tiene permisos para modificar una cuenta de super administrador.',
+      );
     }
   }
 
-  async create(dto: CreateUserDto, actor: { id: string; email: string; role: string }): Promise<SafeUser> {
+  async create(
+    dto: CreateUserDto,
+    actor: { id: string; email: string; role: string },
+  ): Promise<SafeUser> {
     const role = await this.roles.findByName(dto.role);
     if (!role) throw new BadRequestException(`Rol inválido: ${dto.role}`);
     // Solo DTI (super_admin) puede otorgar el rol de mayor privilegio —
     // un admin de Comunicación Social no puede crear otro super_admin.
     if (role.name === 'super_admin' && actor.role !== 'super_admin') {
-      throw new BadRequestException('Solo un super administrador puede asignar el rol de super administrador.');
+      throw new BadRequestException(
+        'Solo un super administrador puede asignar el rol de super administrador.',
+      );
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -88,7 +102,9 @@ export class UsersService {
     const role = await this.roles.findByName(roleName);
     if (!role) throw new BadRequestException(`Rol inválido: ${roleName}`);
     if (role.name === 'super_admin' && actor.role !== 'super_admin') {
-      throw new BadRequestException('Solo un super administrador puede asignar el rol de super administrador.');
+      throw new BadRequestException(
+        'Solo un super administrador puede asignar el rol de super administrador.',
+      );
     }
 
     const user = await this.prisma.user.update({
@@ -159,7 +175,9 @@ export class UsersService {
       userId: actor.id,
       userEmail: actor.email,
       userRole: actor.role,
-      action: isActive ? 'Reactivó cuenta de usuario' : 'Desactivó cuenta de usuario',
+      action: isActive
+        ? 'Reactivó cuenta de usuario'
+        : 'Desactivó cuenta de usuario',
       module: 'Configuración',
       entity: 'User',
       entityId: userId,
@@ -169,7 +187,10 @@ export class UsersService {
     return user;
   }
 
-  async resetMfa(userId: string, actor: { id: string; email: string; role: string }): Promise<SafeUser> {
+  async resetMfa(
+    userId: string,
+    actor: { id: string; email: string; role: string },
+  ): Promise<SafeUser> {
     await this.assertCanManageTarget(userId, actor);
     await this.prisma.mfaSettings.deleteMany({ where: { userId } });
     await this.prisma.refreshToken.updateMany({
@@ -187,7 +208,8 @@ export class UsersService {
       userId: actor.id,
       userEmail: actor.email,
       userRole: actor.role,
-      action: 'Restableció el MFA de un usuario (deberá configurarlo de nuevo en su próximo inicio de sesión)',
+      action:
+        'Restableció el MFA de un usuario (deberá configurarlo de nuevo en su próximo inicio de sesión)',
       module: 'Seguridad',
       entity: 'User',
       entityId: userId,
@@ -204,7 +226,10 @@ export class UsersService {
   ): Promise<void> {
     await this.assertCanManageTarget(userId, actor);
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
-    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+    });
     await this.prisma.refreshToken.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
@@ -227,7 +252,9 @@ export class UsersService {
     dto: ChangePasswordDto,
     actor: { id: string; email: string; role: string },
   ): Promise<void> {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
 
     const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
     if (!valid) {
@@ -235,7 +262,8 @@ export class UsersService {
         userId: actor.id,
         userEmail: actor.email,
         userRole: actor.role,
-        action: 'Intento fallido de cambio de contraseña (contraseña actual incorrecta)',
+        action:
+          'Intento fallido de cambio de contraseña (contraseña actual incorrecta)',
         module: 'Seguridad',
         entity: 'User',
         entityId: userId,
@@ -245,7 +273,10 @@ export class UsersService {
     }
 
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
-    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+    });
 
     await this.audit.log({
       userId: actor.id,

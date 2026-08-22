@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateFeedDto } from './dto/create-feed.dto';
@@ -14,13 +18,18 @@ function slugify(input: string): string {
     .replace(/(^-|-$)/g, '');
 }
 
-function extractPostIdAndDetails(input: string, network: string): { postId: string; url: string } {
+function extractPostIdAndDetails(
+  input: string,
+  network: string,
+): { postId: string; url: string } {
   const trimmed = input.trim();
   let postId = trimmed;
   let url = trimmed;
 
   if (network === 'x') {
-    const match = trimmed.match(/(?:twitter\.com|x\.com)\/(?:#!\/)?(\w+)\/status(?:es)?\/(\d+)/i);
+    const match = trimmed.match(
+      /(?:twitter\.com|x\.com)\/(?:#!\/)?(\w+)\/status(?:es)?\/(\d+)/i,
+    );
     if (match) {
       postId = match[2];
       url = `https://x.com/${match[1]}/status/${postId}`;
@@ -38,7 +47,9 @@ function extractPostIdAndDetails(input: string, network: string): { postId: stri
       url = `https://www.instagram.com/${match[1]}/${postId}/`;
     }
   } else if (network === 'youtube') {
-    const match = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/i);
+    const match = trimmed.match(
+      /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/i,
+    );
     if (match) {
       postId = match[1];
       url = `https://www.youtube.com/watch?v=${postId}`;
@@ -48,8 +59,9 @@ function extractPostIdAndDetails(input: string, network: string): { postId: stri
     }
   } else if (network === 'facebook') {
     const match =
-      trimmed.match(/facebook\.com\/(?:.+)\/(?:posts|videos|reel)\/([A-Za-z0-9_-]+)/i) ||
-      trimmed.match(/pfbid([A-Za-z0-9]+)/);
+      trimmed.match(
+        /facebook\.com\/(?:.+)\/(?:posts|videos|reel)\/([A-Za-z0-9_-]+)/i,
+      ) || trimmed.match(/pfbid([A-Za-z0-9]+)/);
     if (match) postId = match[1] || match[0];
   } else if (network === 'linkedin') {
     const urnMatch = trimmed.match(/urn:li:(share|activity|ugcPost):(\d+)/);
@@ -57,7 +69,9 @@ function extractPostIdAndDetails(input: string, network: string): { postId: stri
       postId = urnMatch[2];
       url = `https://www.linkedin.com/embed/feed/update/urn:li:${urnMatch[1]}:${postId}?collapsed=1`;
     } else {
-      const legacyMatch = trimmed.match(/activity:(\d+)/) || trimmed.match(/\/posts\/([A-Za-z0-9_-]+)/);
+      const legacyMatch =
+        trimmed.match(/activity:(\d+)/) ||
+        trimmed.match(/\/posts\/([A-Za-z0-9_-]+)/);
       if (legacyMatch) postId = legacyMatch[1];
     }
   }
@@ -66,9 +80,26 @@ function extractPostIdAndDetails(input: string, network: string): { postId: stri
 }
 
 const OEMBED_ENDPOINTS: Record<string, (url: string) => string> = {
-  youtube: (url) => `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
-  tiktok: (url) => `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`,
+  youtube: (url) =>
+    `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
+  tiktok: (url) =>
+    `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`,
 };
+
+// res.json() devuelve `any`. Estas respuestas vienen de APIs de terceros, así
+// que se tratan como datos no confiables: se leen como `unknown` y se validan
+// campo por campo con estos ayudantes, en vez de confiar en la forma.
+type JsonObject = Record<string, unknown>;
+
+function asObject(value: unknown): JsonObject | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as JsonObject)
+    : undefined;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
 
 interface OEmbedResult {
   title?: string;
@@ -88,7 +119,9 @@ const PUBLISHED_AT_FORMATTER = new Intl.DateTimeFormat('es-GT', {
 });
 
 function formatPublishedAt(date: Date): string {
-  return PUBLISHED_AT_FORMATTER.format(date).replace(' a. m.', ' a.m.').replace(' p. m.', ' p.m.');
+  return PUBLISHED_AT_FORMATTER.format(date)
+    .replace(' a. m.', ' a.m.')
+    .replace(' p. m.', ' p.m.');
 }
 
 // YouTube y TikTok exponen oEmbed público sin credenciales. Instagram y
@@ -97,7 +130,10 @@ function formatPublishedAt(date: Date): string {
 // configurado en Configuración. X se resuelve aparte vía fetchTwitterCard
 // (meta tags Open Graph, incluye imagen real). Sin credenciales/servicio
 // disponible, se usa contenido de muestra (ver SAMPLE_CONTENT).
-async function fetchOEmbed(network: string, url: string): Promise<OEmbedResult | null> {
+async function fetchOEmbed(
+  network: string,
+  url: string,
+): Promise<OEmbedResult | null> {
   const buildUrl = OEMBED_ENDPOINTS[network];
   if (!buildUrl) return null;
 
@@ -107,16 +143,17 @@ async function fetchOEmbed(network: string, url: string): Promise<OEmbedResult |
     const res = await fetch(buildUrl(url), { signal: controller.signal });
     if (!res.ok) return null;
 
-    const data = await res.json();
+    const data = asObject(await res.json()) ?? {};
+    const authorUrl = asString(data.author_url);
     const authorAvatarUrl =
-      network === 'youtube' && typeof data.author_url === 'string'
-        ? await fetchYouTubeChannelAvatar(data.author_url)
+      network === 'youtube' && authorUrl
+        ? await fetchYouTubeChannelAvatar(authorUrl)
         : undefined;
 
     return {
-      title: typeof data.title === 'string' ? data.title : undefined,
-      authorName: typeof data.author_name === 'string' ? data.author_name : undefined,
-      thumbnailUrl: typeof data.thumbnail_url === 'string' ? data.thumbnail_url : undefined,
+      title: asString(data.title),
+      authorName: asString(data.author_name),
+      thumbnailUrl: asString(data.thumbnail_url),
       authorAvatarUrl,
     };
   } catch {
@@ -130,7 +167,9 @@ async function fetchOEmbed(network: string, url: string): Promise<OEmbedResult |
 // video. El logo real (mismo que se ve en youtube.com) viene en la etiqueta
 // og:image de la página pública del canal — sin necesidad de la YouTube Data
 // API ni una API key.
-async function fetchYouTubeChannelAvatar(channelUrl: string): Promise<string | undefined> {
+async function fetchYouTubeChannelAvatar(
+  channelUrl: string,
+): Promise<string | undefined> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
   try {
@@ -165,24 +204,28 @@ async function fetchTwitterCard(postId: string): Promise<OEmbedResult | null> {
     );
     if (!res.ok) return null;
 
-    const data = await res.json();
-    if (typeof data.text !== 'string') return null;
+    const data = asObject(await res.json()) ?? {};
+    const text = asString(data.text);
+    if (!text) return null;
 
-    const media = Array.isArray(data.mediaDetails) ? data.mediaDetails[0] : undefined;
+    const media = Array.isArray(data.mediaDetails)
+      ? asObject(data.mediaDetails[0])
+      : undefined;
+    const user = asObject(data.user);
+    const createdAt = asString(data.created_at);
+
     const thumbnailUrl =
-      typeof media?.media_url_https === 'string'
-        ? media.media_url_https
-        : typeof data.video?.poster === 'string'
-          ? data.video.poster
-          : undefined;
+      asString(media?.media_url_https) ??
+      asString(asObject(data.video)?.poster);
 
     return {
-      title: data.text,
-      authorName: typeof data.user?.name === 'string' ? data.user.name : undefined,
+      title: text,
+      authorName: asString(user?.name),
       thumbnailUrl,
-      authorAvatarUrl:
-        typeof data.user?.profile_image_url_https === 'string' ? data.user.profile_image_url_https : undefined,
-      publishedAt: typeof data.created_at === 'string' ? formatPublishedAt(new Date(data.created_at)) : undefined,
+      authorAvatarUrl: asString(user?.profile_image_url_https),
+      publishedAt: createdAt
+        ? formatPublishedAt(new Date(createdAt))
+        : undefined,
     };
   } catch {
     return null;
@@ -195,7 +238,10 @@ async function fetchTwitterCard(postId: string): Promise<OEmbedResult | null> {
 // Configuración > Credenciales de API. postId debe ser el ID nativo del
 // post de Facebook (no la URL). Sin token configurado, retorna null y se
 // usa contenido de muestra.
-async function fetchFacebookPost(postId: string, pageAccessToken?: string): Promise<OEmbedResult | null> {
+async function fetchFacebookPost(
+  postId: string,
+  pageAccessToken?: string,
+): Promise<OEmbedResult | null> {
   if (!pageAccessToken) return null;
 
   const controller = new AbortController();
@@ -207,11 +253,11 @@ async function fetchFacebookPost(postId: string, pageAccessToken?: string): Prom
     );
     if (!res.ok) return null;
 
-    const data = await res.json();
+    const data = asObject(await res.json()) ?? {};
     return {
-      title: typeof data.message === 'string' ? data.message : undefined,
-      authorName: typeof data.from?.name === 'string' ? data.from.name : undefined,
-      thumbnailUrl: typeof data.full_picture === 'string' ? data.full_picture : undefined,
+      title: asString(data.message),
+      authorName: asString(asObject(data.from)?.name),
+      thumbnailUrl: asString(data.full_picture),
     };
   } catch {
     return null;
@@ -222,11 +268,16 @@ async function fetchFacebookPost(postId: string, pageAccessToken?: string): Prom
 
 const SAMPLE_CONTENT: Record<string, string> = {
   x: '🇬🇹 #MINFINInforma | Publicación oficial de @MinfinGT sobre finanzas públicas, ejecución presupuestaria y modernización del Estado.',
-  facebook: 'Reunión de coordinación técnica en el Ministerio de Finanzas Públicas con autoridades para el fortalecimiento institucional.',
-  instagram: 'Boletín visual oficial del Ministerio de Finanzas Públicas de Guatemala. Conoce más en minfin.gob.gt #Transparencia',
-  youtube: 'Transmisión oficial del MINFIN: Capacitaciones en sistemas de gestión financiera pública.',
-  linkedin: 'El Ministerio de Finanzas Públicas comparte oportunidades de desarrollo profesional y novedades del sector hacendario.',
-  tiktok: 'Cápsula educativa MINFIN sobre cómo se distribuye el presupuesto de la nación.',
+  facebook:
+    'Reunión de coordinación técnica en el Ministerio de Finanzas Públicas con autoridades para el fortalecimiento institucional.',
+  instagram:
+    'Boletín visual oficial del Ministerio de Finanzas Públicas de Guatemala. Conoce más en minfin.gob.gt #Transparencia',
+  youtube:
+    'Transmisión oficial del MINFIN: Capacitaciones en sistemas de gestión financiera pública.',
+  linkedin:
+    'El Ministerio de Finanzas Públicas comparte oportunidades de desarrollo profesional y novedades del sector hacendario.',
+  tiktok:
+    'Cápsula educativa MINFIN sobre cómo se distribuye el presupuesto de la nación.',
 };
 
 @Injectable()
@@ -249,7 +300,10 @@ export class FeedsService {
     entity?: string,
     entityId?: string,
   ): Promise<void> {
-    const actorUser = await this.prisma.user.findUnique({ where: { id: actor.id }, select: { mfaEnabled: true } });
+    const actorUser = await this.prisma.user.findUnique({
+      where: { id: actor.id },
+      select: { mfaEnabled: true },
+    });
     if (!actorUser?.mfaEnabled) return;
 
     const validCode = await this.auth.verifyMfaCode(actor.id, mfaCode ?? '');
@@ -268,11 +322,20 @@ export class FeedsService {
     }
   }
 
-  async create(dto: CreateFeedDto, actor: { id: string; email: string; role: string }): Promise<Feed> {
+  async create(
+    dto: CreateFeedDto,
+    actor: { id: string; email: string; role: string },
+  ): Promise<Feed> {
     // Crear un feed es una acción sensible (define qué se publica en los
     // portales institucionales), así que si el usuario tiene MFA configurado
     // se exige re-confirmar con su código TOTP actual antes de proceder.
-    await this.requireStepUpMfa(actor, dto.mfaCode, 'Intento fallido de creación de feed (código MFA inválido)', 'Feeds', 'Feed');
+    await this.requireStepUpMfa(
+      actor,
+      dto.mfaCode,
+      'Intento fallido de creación de feed (código MFA inválido)',
+      'Feeds',
+      'Feed',
+    );
 
     const slug = dto.slug || slugify(dto.name) || `feed-${Date.now()}`;
     const feed = await this.prisma.feed.create({
@@ -373,7 +436,9 @@ export class FeedsService {
     if (!feed) throw new NotFoundException('Feed no encontrado');
 
     const settings = await this.settings.get();
-    const officialAccounts = (settings.officialAccounts as Record<string, { avatarUrl?: string }>) || {};
+    const officialAccounts =
+      (settings.officialAccounts as Record<string, { avatarUrl?: string }>) ||
+      {};
 
     return {
       ...feed,
@@ -381,13 +446,20 @@ export class FeedsService {
         ...link,
         post: {
           ...link.post,
-          authorAvatarUrl: link.post.authorAvatarUrl || officialAccounts[link.post.network]?.avatarUrl || null,
+          authorAvatarUrl:
+            link.post.authorAvatarUrl ||
+            officialAccounts[link.post.network]?.avatarUrl ||
+            null,
         },
       })),
     };
   }
 
-  async update(id: string, dto: UpdateFeedDto, actor: { id: string; email: string; role: string }): Promise<Feed> {
+  async update(
+    id: string,
+    dto: UpdateFeedDto,
+    actor: { id: string; email: string; role: string },
+  ): Promise<Feed> {
     const feed = await this.prisma.feed.update({
       where: { id },
       data: { ...dto, updatedBy: actor.email },
@@ -407,10 +479,15 @@ export class FeedsService {
     return feed;
   }
 
-  async remove(id: string, actor: { id: string; email: string; role: string }): Promise<void> {
-    const feed = await this.prisma.feed.findUniqueOrThrow({ where: { id } }).catch(() => {
-      throw new NotFoundException('Feed no encontrado');
-    });
+  async remove(
+    id: string,
+    actor: { id: string; email: string; role: string },
+  ): Promise<void> {
+    const feed = await this.prisma.feed
+      .findUniqueOrThrow({ where: { id } })
+      .catch(() => {
+        throw new NotFoundException('Feed no encontrado');
+      });
 
     await this.prisma.feed.delete({ where: { id } });
 
@@ -427,7 +504,10 @@ export class FeedsService {
     });
   }
 
-  async duplicate(id: string, actor: { id: string; email: string; role: string }): Promise<Feed> {
+  async duplicate(
+    id: string,
+    actor: { id: string; email: string; role: string },
+  ): Promise<Feed> {
     const target = await this.prisma.feed.findUniqueOrThrow({ where: { id } });
     const copySlug = `${target.slug}-copia-${Math.floor(Math.random() * 1000)}`;
 
@@ -483,7 +563,9 @@ export class FeedsService {
       feedId,
     );
 
-    const feed = await this.prisma.feed.findUniqueOrThrow({ where: { id: feedId } });
+    const feed = await this.prisma.feed.findUniqueOrThrow({
+      where: { id: feedId },
+    });
 
     if (feed.network !== 'mixed' && feed.network !== input.network) {
       return {
@@ -492,10 +574,16 @@ export class FeedsService {
       };
     }
 
-    const { postId, url } = extractPostIdAndDetails(input.urlOrId, input.network);
+    const { postId, url } = extractPostIdAndDetails(
+      input.urlOrId,
+      input.network,
+    );
 
     if (!postId) {
-      return { success: false, message: 'No se pudo identificar un ID o URL válida.' };
+      return {
+        success: false,
+        message: 'No se pudo identificar un ID o URL válida.',
+      };
     }
 
     let post = await this.prisma.socialPost.findUnique({
@@ -504,7 +592,12 @@ export class FeedsService {
 
     if (!post) {
       const settings = await this.settings.get();
-      const account = (settings.officialAccounts as Record<string, { handle?: string; name?: string; avatarUrl?: string }>)?.[input.network];
+      const account = (
+        settings.officialAccounts as Record<
+          string,
+          { handle?: string; name?: string; avatarUrl?: string }
+        >
+      )?.[input.network];
       const apiKeys = (settings.apiKeys as Record<string, string>) || {};
       const oembed = input.customContent
         ? null
@@ -522,10 +615,18 @@ export class FeedsService {
           postId,
           url,
           authorHandle: account?.handle ?? '@MinfinGT',
-          authorName: input.customAuthorName || oembed?.authorName || account?.name || 'Ministerio de Finanzas Públicas',
+          authorName:
+            input.customAuthorName ||
+            oembed?.authorName ||
+            account?.name ||
+            'Ministerio de Finanzas Públicas',
           authorAvatarUrl: account?.avatarUrl || oembed?.authorAvatarUrl,
           publishedAt: oembed?.publishedAt || formatPublishedAt(new Date()),
-          content: input.customContent || oembed?.title || SAMPLE_CONTENT[input.network] || '',
+          content:
+            input.customContent ||
+            oembed?.title ||
+            SAMPLE_CONTENT[input.network] ||
+            '',
           mediaType: input.network === 'youtube' ? 'video' : 'image',
           mediaThumb: input.network === 'youtube' ? mediaThumbOrUrl : undefined,
           mediaUrl: input.network !== 'youtube' ? mediaThumbOrUrl : undefined,
@@ -539,11 +640,19 @@ export class FeedsService {
       where: { feedId_postId: { feedId, postId: post.id } },
     });
     if (existingLink) {
-      return { success: false, message: 'La publicación ya se encuentra registrada en este feed.' };
+      return {
+        success: false,
+        message: 'La publicación ya se encuentra registrada en este feed.',
+      };
     }
 
-    await this.prisma.feedPost.updateMany({ where: { feedId }, data: { order: { increment: 1 } } });
-    await this.prisma.feedPost.create({ data: { feedId, postId: post.id, order: 0 } });
+    await this.prisma.feedPost.updateMany({
+      where: { feedId },
+      data: { order: { increment: 1 } },
+    });
+    await this.prisma.feedPost.create({
+      data: { feedId, postId: post.id, order: 0 },
+    });
 
     await this.audit.log({
       userId: actor.id,
@@ -575,7 +684,9 @@ export class FeedsService {
       feedId,
     );
 
-    await this.prisma.feedPost.delete({ where: { feedId_postId: { feedId, postId } } });
+    await this.prisma.feedPost.delete({
+      where: { feedId_postId: { feedId, postId } },
+    });
 
     await this.audit.log({
       userId: actor.id,
@@ -631,7 +742,10 @@ export class FeedsService {
       postId,
     );
 
-    const post = await this.prisma.socialPost.update({ where: { id: postId }, data: { content } });
+    const post = await this.prisma.socialPost.update({
+      where: { id: postId },
+      data: { content },
+    });
 
     await this.audit.log({
       userId: actor.id,

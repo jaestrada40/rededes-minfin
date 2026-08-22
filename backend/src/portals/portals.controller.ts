@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -8,7 +18,9 @@ import { AssignPortalsDto } from './dto/assign-portals.dto';
 import { CreatePortalDto } from './dto/create-portal.dto';
 import { UpdatePortalDto } from './dto/update-portal.dto';
 
-type AuthedRequest = Request & { user: { id: string; email: string; role: string } };
+type AuthedRequest = Request & {
+  user: { id: string; email: string; role: string };
+};
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller()
@@ -31,7 +43,11 @@ export class PortalsController {
 
   @Roles('super_admin')
   @Patch('portals/:id')
-  update(@Param('id') id: string, @Body() dto: UpdatePortalDto, @Req() req: AuthedRequest) {
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdatePortalDto,
+    @Req() req: AuthedRequest,
+  ) {
     return this.portals.update(id, dto, req.user);
   }
 
@@ -45,7 +61,11 @@ export class PortalsController {
   // contenido, no configuración técnica — lo conserva Comunicación Social.
   @Roles('super_admin', 'admin')
   @Patch('feeds/:id/portals')
-  assign(@Param('id') id: string, @Body() dto: AssignPortalsDto, @Req() req: AuthedRequest) {
+  assign(
+    @Param('id') id: string,
+    @Body() dto: AssignPortalsDto,
+    @Req() req: AuthedRequest,
+  ) {
     return this.portals.assignFeedToPortals(id, dto.portalIds, req.user);
   }
 

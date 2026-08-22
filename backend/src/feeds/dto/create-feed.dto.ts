@@ -1,4 +1,11 @@
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export class CreateFeedDto {
   @IsOptional() @IsString() slug?: string;
@@ -6,7 +13,9 @@ export class CreateFeedDto {
   @IsString() description: string;
   @IsString() network: string;
   @IsOptional() @IsIn(['active', 'draft', 'paused']) status?: string;
-  @IsOptional() @IsIn(['grid', 'list', 'carousel', 'single']) layoutDefault?: string;
+  @IsOptional()
+  @IsIn(['grid', 'list', 'carousel', 'single'])
+  layoutDefault?: string;
   @IsOptional() @IsInt() @Min(1) maxItemsDefault?: number;
   @IsOptional() @IsBoolean() showMetrics?: boolean;
   @IsOptional() @IsBoolean() showMedia?: boolean;

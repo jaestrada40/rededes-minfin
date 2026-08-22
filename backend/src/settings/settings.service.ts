@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
-import { SystemSettings } from '@prisma/client';
+import { Prisma, SystemSettings } from '@prisma/client';
 
 @Injectable()
 export class SettingsService {
@@ -12,10 +12,15 @@ export class SettingsService {
   ) {}
 
   get(): Promise<SystemSettings> {
-    return this.prisma.systemSettings.findUniqueOrThrow({ where: { id: 'default' } });
+    return this.prisma.systemSettings.findUniqueOrThrow({
+      where: { id: 'default' },
+    });
   }
 
-  async getPublicBranding(): Promise<{ logoUrl: string | null; institutionName: string }> {
+  async getPublicBranding(): Promise<{
+    logoUrl: string | null;
+    institutionName: string;
+  }> {
     const settings = await this.prisma.systemSettings.findUniqueOrThrow({
       where: { id: 'default' },
       select: { logoUrl: true, institutionName: true },
@@ -23,10 +28,13 @@ export class SettingsService {
     return settings;
   }
 
-  async update(dto: UpdateSettingsDto, actor: { id: string; email: string; role: string }): Promise<SystemSettings> {
+  async update(
+    dto: UpdateSettingsDto,
+    actor: { id: string; email: string; role: string },
+  ): Promise<SystemSettings> {
     const settings = await this.prisma.systemSettings.update({
       where: { id: 'default' },
-      data: dto as any,
+      data: dto as Prisma.SystemSettingsUpdateInput,
     });
 
     await this.audit.log({

@@ -13,7 +13,15 @@ async function bootstrap() {
   // El filtro global de excepciones se registra vía APP_FILTER en CommonModule,
   // para que las pruebas e2e usen el mismo mapeo de errores que producción.
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.enableCors({ origin: process.env.CORS_ORIGIN.split(','), credentials: true });
+  app.enableCors({
+    origin: process.env.CORS_ORIGIN.split(','),
+    credentials: true,
+  });
   await app.listen(process.env.PORT ?? 4000);
 }
-bootstrap();
+// Un fallo al arrancar debe terminar el proceso con código distinto de cero,
+// no quedar como una promesa rechazada sin manejar.
+bootstrap().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

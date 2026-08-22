@@ -5,7 +5,11 @@ import { AuditService } from '../audit/audit.service';
 
 describe('SettingsService', () => {
   let service: SettingsService;
-  const row = { id: 'default', institutionName: 'MINFIN', maintenanceMode: false };
+  const row = {
+    id: 'default',
+    institutionName: 'MINFIN',
+    maintenanceMode: false,
+  };
   const prismaMock = {
     systemSettings: {
       findUniqueOrThrow: jest.fn().mockResolvedValue(row),
@@ -36,6 +40,8 @@ describe('SettingsService', () => {
       { id: 'u1', email: 'a@minfin.gob.gt', role: 'super_admin' },
     );
     expect(settings.maintenanceMode).toBe(true);
-    expect(auditMock.log).toHaveBeenCalledWith(expect.objectContaining({ module: 'Configuración' }));
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({ module: 'Configuración' }),
+    );
   });
 });

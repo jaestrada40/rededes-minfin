@@ -2,11 +2,18 @@ import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RolesGuard } from './roles.guard';
 
-function contextWith(role: string | undefined, requiredRoles: string[] | undefined) {
-  const reflector = { getAllAndOverride: jest.fn().mockReturnValue(requiredRoles) } as unknown as Reflector;
+function contextWith(
+  role: string | undefined,
+  requiredRoles: string[] | undefined,
+) {
+  const reflector = {
+    getAllAndOverride: jest.fn().mockReturnValue(requiredRoles),
+  } as unknown as Reflector;
   const guard = new RolesGuard(reflector);
   const context = {
-    switchToHttp: () => ({ getRequest: () => ({ user: role ? { role } : undefined }) }),
+    switchToHttp: () => ({
+      getRequest: () => ({ user: role ? { role } : undefined }),
+    }),
     getHandler: () => {},
     getClass: () => {},
   } as unknown as ExecutionContext;

@@ -8,12 +8,20 @@ describe('UsersService', () => {
   let service: UsersService;
   const prismaMock = {
     user: {
-      create: jest.fn().mockResolvedValue({ id: 'u1', email: 'a@minfin.gob.gt', roleId: 'r1' }),
-      findUnique: jest.fn().mockResolvedValue({ id: 'u1', email: 'a@minfin.gob.gt' }),
+      create: jest.fn().mockResolvedValue({
+        id: 'u1',
+        email: 'a@minfin.gob.gt',
+        roleId: 'r1',
+      }),
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ id: 'u1', email: 'a@minfin.gob.gt' }),
       findMany: jest.fn().mockResolvedValue([]),
     },
   };
-  const rolesMock = { findByName: jest.fn().mockResolvedValue({ id: 'r1', name: 'editor' }) };
+  const rolesMock = {
+    findByName: jest.fn().mockResolvedValue({ id: 'r1', name: 'editor' }),
+  };
   const auditMock = { log: jest.fn() };
 
   beforeEach(async () => {

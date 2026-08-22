@@ -28,41 +28,70 @@ describe('Feeds and portals flow (e2e)', () => {
    * El secreto TOTP ya no viaja en el token —queda cifrado del lado del
    * servidor—, así que se lee del registro pendiente y se descifra.
    */
-  async function enrollAndLogin(userEmail: string): Promise<{ accessToken: string; secret: string }> {
-    const loginRes = await request(app.getHttpServer()).post('/auth/login').send({ email: userEmail, password });
+  async function enrollAndLogin(
+    userEmail: string,
+  ): Promise<{ accessToken: string; secret: string }> {
+    const loginRes = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: userEmail, password });
     const setupRes = await request(app.getHttpServer())
       .post('/auth/mfa/setup')
       .send({ setupToken: loginRes.body.setupToken });
 
-    const { userId } = JSON.parse(Buffer.from(setupRes.body.verifyToken.split('.')[1], 'base64').toString());
-    const pending = await prisma.mfaSettings.findUniqueOrThrow({ where: { userId } });
+    const { userId } = JSON.parse(
+      Buffer.from(setupRes.body.verifyToken.split('.')[1], 'base64').toString(),
+    );
+    const pending = await prisma.mfaSettings.findUniqueOrThrow({
+      where: { userId },
+    });
     const secret = (auth as any).decryptSecret(pending.secretEncrypted);
 
     const verifyRes = await request(app.getHttpServer())
       .post('/auth/mfa/setup/verify')
-      .send({ token: setupRes.body.verifyToken, code: authenticator.generate(secret) });
+      .send({
+        token: setupRes.body.verifyToken,
+        code: authenticator.generate(secret),
+      });
 
     return { accessToken: verifyRes.body.accessToken, secret };
   }
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     await app.init();
     prisma = moduleRef.get(PrismaService);
     auth = moduleRef.get(AuthService);
 
-    const role = await prisma.role.upsert({ where: { name: 'admin' }, update: {}, create: { name: 'admin' } });
+    const role = await prisma.role.upsert({
+      where: { name: 'admin' },
+      update: {},
+      create: { name: 'admin' },
+    });
     await prisma.user.upsert({
       where: { email },
       update: {},
-      create: { email, name: 'E2E Feeds Admin', passwordHash: await bcrypt.hash(password, 10), roleId: role.id },
+      create: {
+        email,
+        name: 'E2E Feeds Admin',
+        passwordHash: await bcrypt.hash(password, 10),
+        roleId: role.id,
+      },
     });
     await prisma.systemSettings.upsert({
       where: { id: 'default' },
       update: {},
-      create: { id: 'default', webhookSecret: 'test-secret', allowedCorsDomains: [], officialAccounts: {} },
+      create: {
+        id: 'default',
+        webhookSecret: 'test-secret',
+        allowedCorsDomains: [],
+        officialAccounts: {},
+      },
     });
     const portal = await prisma.wordPressPortal.create({
       data: {
@@ -108,11 +137,17 @@ describe('Feeds and portals flow (e2e)', () => {
     await prisma.wordPressPortal.deleteMany({ where: { id: portalId } });
     // Igual que en auth.e2e: se limpia solo lo propio, porque las suites
     // comparten base de datos y Jest las corre en paralelo.
-    const users = await prisma.user.findMany({ where: { email: { in: [email, editorEmail] } } });
+    const users = await prisma.user.findMany({
+      where: { email: { in: [email, editorEmail] } },
+    });
     const userIds = users.map((u) => u.id);
     if (userIds.length) {
-      await prisma.refreshToken.deleteMany({ where: { userId: { in: userIds } } });
-      await prisma.mfaSettings.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.refreshToken.deleteMany({
+        where: { userId: { in: userIds } },
+      });
+      await prisma.mfaSettings.deleteMany({
+        where: { userId: { in: userIds } },
+      });
       await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     }
     await app.close();
@@ -124,7 +159,12 @@ describe('Feeds and portals flow (e2e)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       // Crear un feed y agregar publicaciones son acciones sensibles: con MFA
       // configurado exigen re-confirmar con el código TOTP actual.
-      .send({ name: feedName, description: 'desc', network: 'x', mfaCode: authenticator.generate(adminSecret) })
+      .send({
+        name: feedName,
+        description: 'desc',
+        network: 'x',
+        mfaCode: authenticator.generate(adminSecret),
+      })
       .expect(201);
     const feedId = createRes.body.id;
     createdFeedId = feedId;
@@ -173,7 +213,12 @@ describe('Feeds and portals flow (e2e)', () => {
     await request(app.getHttpServer())
       .post('/portals')
       .set('Authorization', `Bearer ${editorAccessToken}`)
-      .send({ name: 'Portal Denegado', domain: 'no.minfin.gob.gt', category: 'Institucional', description: 'x' })
+      .send({
+        name: 'Portal Denegado',
+        domain: 'no.minfin.gob.gt',
+        category: 'Institucional',
+        description: 'x',
+      })
       .expect(403);
 
     // La bitácora de auditoría también quedó reservada a super_admin.
@@ -189,7 +234,12 @@ describe('Feeds and portals flow (e2e)', () => {
     await request(app.getHttpServer())
       .post('/feeds')
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: feedName, description: 'duplicado', network: 'x', mfaCode: authenticator.generate(adminSecret) })
+      .send({
+        name: feedName,
+        description: 'duplicado',
+        network: 'x',
+        mfaCode: authenticator.generate(adminSecret),
+      })
       .expect(409);
   });
 
