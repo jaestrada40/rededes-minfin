@@ -55,9 +55,10 @@ interface AppContextType {
   setUserActive: (userId: string, isActive: boolean) => Promise<void>;
   resetUserMfa: (userId: string) => Promise<void>;
   changeOwnPassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  adminSetUserPassword: (userId: string, newPassword: string) => Promise<void>;
 
   // Feed Actions
-  createFeed: (feedData: Partial<Feed>) => Promise<void>;
+  createFeed: (feedData: Partial<Feed>, mfaCode?: string) => Promise<void>;
   updateFeed: (id: string, feedData: Partial<Feed>) => Promise<void>;
   deleteFeed: (id: string) => Promise<void>;
   duplicateFeed: (id: string) => Promise<void>;
@@ -459,7 +460,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveTab('preview');
   };
 
-  const createFeed = async (feedData: Partial<Feed>) => {
+  const createFeed = async (feedData: Partial<Feed>, mfaCode?: string) => {
     const { assignedPortalIds, ...rest } = feedData;
     const created = await feedsApi.createFeed({
       slug: rest.slug,
@@ -471,7 +472,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       maxItemsDefault: rest.maxItemsDefault,
       showMetrics: rest.showMetrics,
       showMedia: rest.showMedia,
-      autoRefreshMinutes: rest.autoRefreshMinutes
+      autoRefreshMinutes: rest.autoRefreshMinutes,
+      mfaCode
     });
     if (assignedPortalIds && assignedPortalIds.length > 0) {
       await portalsApi.assignFeedToPortals(created.id, assignedPortalIds);
@@ -607,6 +609,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showNotification('Contraseña actualizada correctamente.', 'success');
   };
 
+  const adminSetUserPassword = async (userId: string, newPassword: string) => {
+    await usersApi.adminSetUserPassword(userId, newPassword);
+    showNotification('Contraseña del usuario restablecida.', 'warning');
+  };
+
   const createPortal = async (input: portalsApi.CreatePortalInput) => {
     const portal = await portalsApi.createPortal(input);
     await loadPortals();
@@ -663,6 +670,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setUserActive,
         resetUserMfa,
         changeOwnPassword,
+        adminSetUserPassword,
         createFeed,
         updateFeed,
         deleteFeed,

@@ -54,3 +54,7 @@ export function resetUserMfa(id: string): Promise<BackendUser> {
 export function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
   return apiPatch<void>('/users/me/password', { currentPassword, newPassword });
 }
+
+export function adminSetUserPassword(id: string, newPassword: string): Promise<void> {
+  return apiPatch<void>(`/users/${id}/password`, { newPassword });
+}

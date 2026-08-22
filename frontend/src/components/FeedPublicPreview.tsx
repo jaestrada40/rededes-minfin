@@ -31,6 +31,9 @@ declare global {
       widgets: { load: (el?: HTMLElement) => void };
       events?: { bind: (name: string, cb: () => void) => void };
     };
+    instgrm?: {
+      Embeds: { process: (el?: HTMLElement) => void };
+    };
   }
 }
 
@@ -75,6 +78,48 @@ const XTweetEmbed: React.FC<{ url: string }> = ({ url }) => {
   );
 };
 
+// Igual filosofía que XTweetEmbed: Instagram no ofrece oEmbed público sin
+// una app aprobada por Meta, pero su embed oficial (blockquote +
+// embed.js) sí funciona sin credenciales para cualquier publicación pública
+// — mismo mecanismo que ofrece "Insertar" en instagram.com.
+const IG_EMBED_SRC = 'https://www.instagram.com/embed.js';
+
+const IGPostEmbed: React.FC<{ url: string }> = ({ url }) => {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const load = () => window.instgrm?.Embeds.process(ref.current ?? undefined);
+
+    if (window.instgrm) {
+      load();
+      return;
+    }
+    if (!document.querySelector(`script[src="${IG_EMBED_SRC}"]`)) {
+      const script = document.createElement('script');
+      script.src = IG_EMBED_SRC;
+      script.async = true;
+      script.onload = load;
+      document.body.appendChild(script);
+    } else {
+      const interval = setInterval(() => {
+        if (window.instgrm) {
+          clearInterval(interval);
+          load();
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+  }, [url]);
+
+  return (
+    <div ref={ref} className="flex justify-center bg-white rounded-xl border border-slate-200/90 shadow-sm overflow-hidden p-2">
+      <blockquote className="instagram-media" data-instgrm-permalink={url} data-instgrm-version="14" style={{ margin: 0 }}>
+        <a href={url}></a>
+      </blockquote>
+    </div>
+  );
+};
+
 // Igual filosofía que XTweetEmbed: la Graph API de Facebook exige un Page
 // Access Token, pero el Post Embed oficial (plugins/post.php) funciona sin
 // credenciales para cualquier publicación pública.
@@ -93,6 +138,24 @@ const FBPostEmbed: React.FC<{ url: string }> = ({ url }) => {
     </div>
   );
 };
+
+// LinkedIn no ofrece Graph API pública para publicaciones institucionales,
+// pero su embed oficial ("Insertar" / Embed this post) funciona sin
+// credenciales para cualquier publicación pública — misma filosofía que
+// XTweetEmbed y FBPostEmbed. post.url ya viene normalizado como la URL de
+// embed (https://www.linkedin.com/embed/feed/update/urn:li:...) desde el
+// backend.
+const LIPostEmbed: React.FC<{ url: string }> = ({ url }) => (
+  <div className="flex justify-center bg-white rounded-xl border border-slate-200/90 shadow-sm overflow-hidden">
+    <iframe
+      src={url}
+      title="Publicación de LinkedIn"
+      loading="lazy"
+      style={{ border: 'none', width: '100%', maxWidth: 504, height: 670 }}
+      allowFullScreen
+    />
+  </div>
+);
 
 export const FeedPublicPreview: React.FC = () => {
   const { feeds, posts, portals, selectedFeedId, setSelectedFeedId, settings, updateFeed, showNotification } = useApp();
@@ -186,9 +249,15 @@ export const FeedPublicPreview: React.FC = () => {
     if (isFB) {
       return <FBPostEmbed key={post.id} url={post.url} />;
     }
-    const isIG = post.network === 'instagram';
-    const isYT = post.network === 'youtube';
     const isLI = post.network === 'linkedin';
+    if (isLI) {
+      return <LIPostEmbed key={post.id} url={post.url} />;
+    }
+    const isIG = post.network === 'instagram';
+    if (isIG) {
+      return <IGPostEmbed key={post.id} url={post.url} />;
+    }
+    const isYT = post.network === 'youtube';
 
     return (
       <div

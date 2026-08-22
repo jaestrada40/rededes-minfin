@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateFeedDto } from './dto/create-feed.dto';
 import { UpdateFeedDto } from './dto/update-feed.dto';
 import { SettingsService } from '../settings/settings.service';
+import { AuthService } from '../auth/auth.service';
 import { Feed } from '@prisma/client';
 
 function slugify(input: string): string {
@@ -28,10 +29,13 @@ function extractPostIdAndDetails(input: string, network: string): { postId: stri
       url = `https://x.com/MinfinGT/status/${trimmed}`;
     }
   } else if (network === 'instagram') {
-    const match = trimmed.match(/(?:instagram\.com)\/(?:p|reel)\/([A-Za-z0-9_-]+)/i);
+    // Conserva el tipo original (p = post, reel = reel) en vez de forzar
+    // siempre "/p/", ya que el embed oficial de Instagram usa el permalink
+    // exacto de la publicación.
+    const match = trimmed.match(/instagram\.com\/(p|reel)\/([A-Za-z0-9_-]+)/i);
     if (match) {
-      postId = match[1];
-      url = `https://www.instagram.com/p/${postId}/`;
+      postId = match[2];
+      url = `https://www.instagram.com/${match[1]}/${postId}/`;
     }
   } else if (network === 'youtube') {
     const match = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/i);
@@ -48,11 +52,14 @@ function extractPostIdAndDetails(input: string, network: string): { postId: stri
       trimmed.match(/pfbid([A-Za-z0-9]+)/);
     if (match) postId = match[1] || match[0];
   } else if (network === 'linkedin') {
-    const match =
-      trimmed.match(/activity:(\d+)/) ||
-      trimmed.match(/urn:li:activity:(\d+)/) ||
-      trimmed.match(/\/posts\/([A-Za-z0-9_-]+)/);
-    if (match) postId = match[1];
+    const urnMatch = trimmed.match(/urn:li:(share|activity|ugcPost):(\d+)/);
+    if (urnMatch) {
+      postId = urnMatch[2];
+      url = `https://www.linkedin.com/embed/feed/update/urn:li:${urnMatch[1]}:${postId}?collapsed=1`;
+    } else {
+      const legacyMatch = trimmed.match(/activity:(\d+)/) || trimmed.match(/\/posts\/([A-Za-z0-9_-]+)/);
+      if (legacyMatch) postId = legacyMatch[1];
+    }
   }
 
   return { postId, url };
@@ -228,9 +235,30 @@ export class FeedsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
+    private readonly auth: AuthService,
   ) {}
 
   async create(dto: CreateFeedDto, actor: { id: string; email: string; role: string }): Promise<Feed> {
+    // Crear un feed es una acción sensible (define qué se publica en los
+    // portales institucionales), así que si el usuario tiene MFA configurado
+    // se exige re-confirmar con su código TOTP actual antes de proceder.
+    const actorUser = await this.prisma.user.findUnique({ where: { id: actor.id }, select: { mfaEnabled: true } });
+    if (actorUser?.mfaEnabled) {
+      const validCode = await this.auth.verifyMfaCode(actor.id, dto.mfaCode ?? '');
+      if (!validCode) {
+        await this.audit.log({
+          userId: actor.id,
+          userEmail: actor.email,
+          userRole: actor.role,
+          action: 'Intento fallido de creación de feed (código MFA inválido)',
+          module: 'Feeds',
+          entity: 'Feed',
+          result: 'Fallido',
+        });
+        throw new UnauthorizedException('Código MFA inválido o faltante.');
+      }
+    }
+
     const slug = dto.slug || slugify(dto.name) || `feed-${Date.now()}`;
     const feed = await this.prisma.feed.create({
       data: {

@@ -6,6 +6,7 @@ import { AuditService } from '../audit/audit.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { AdminSetPasswordDto } from './dto/admin-set-password.dto';
 import { User } from '@prisma/client';
 
 export type SafeUser = Omit<User, 'passwordHash'>;
@@ -168,6 +169,30 @@ export class UsersService {
     });
 
     return user;
+  }
+
+  async adminSetPassword(
+    userId: string,
+    dto: AdminSetPasswordDto,
+    actor: { id: string; email: string; role: string },
+  ): Promise<void> {
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    await this.audit.log({
+      userId: actor.id,
+      userEmail: actor.email,
+      userRole: actor.role,
+      action: 'Restableció la contraseña de un usuario',
+      module: 'Seguridad',
+      entity: 'User',
+      entityId: userId,
+      result: 'Advertencia',
+    });
   }
 
   async changeOwnPassword(

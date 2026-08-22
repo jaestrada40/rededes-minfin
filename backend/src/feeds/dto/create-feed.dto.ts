@@ -11,4 +11,5 @@ export class CreateFeedDto {
   @IsOptional() @IsBoolean() showMetrics?: boolean;
   @IsOptional() @IsBoolean() showMedia?: boolean;
   @IsOptional() @IsInt() @Min(0) autoRefreshMinutes?: number;
+  @IsOptional() @IsString() mfaCode?: string;
 }

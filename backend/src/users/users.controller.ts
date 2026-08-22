@@ -6,6 +6,7 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { AdminSetPasswordDto } from './dto/admin-set-password.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('users')
@@ -54,5 +55,11 @@ export class UsersController {
   @Patch(':id/reset-mfa')
   resetMfa(@Param('id') id: string, @Req() req: any) {
     return this.users.resetMfa(id, req.user);
+  }
+
+  @Roles('admin')
+  @Patch(':id/password')
+  adminSetPassword(@Param('id') id: string, @Body() dto: AdminSetPasswordDto, @Req() req: any) {
+    return this.users.adminSetPassword(id, dto, req.user);
   }
 }

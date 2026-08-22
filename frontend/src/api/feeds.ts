@@ -74,6 +74,7 @@ export function createFeed(input: {
   showMetrics?: boolean;
   showMedia?: boolean;
   autoRefreshMinutes?: number;
+  mfaCode?: string;
 }): Promise<BackendFeed> {
   return apiPost<BackendFeed>('/feeds', input);
 }

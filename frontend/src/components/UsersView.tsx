@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Pagination } from './Pagination';
-import { Users, Plus, UserCircle, Pencil, X, Search, Ban, CheckCircle2, ShieldOff } from 'lucide-react';
+import { Users, Plus, UserCircle, Pencil, X, Search, Ban, CheckCircle2, ShieldOff, KeyRound } from 'lucide-react';
 import { UserProfile, UserRole } from '../types';
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -23,7 +23,7 @@ const PAGE_SIZE = 8;
 type ModalMode = { kind: 'create' } | { kind: 'edit'; target: UserProfile } | null;
 
 export const UsersView: React.FC = () => {
-  const { user, users, requestConfirm, createUser, updateUser, updateUserRole, setUserActive, resetUserMfa } = useApp();
+  const { user, users, requestConfirm, createUser, updateUser, updateUserRole, setUserActive, resetUserMfa, adminSetUserPassword } = useApp();
 
   const canEdit = user.role === 'admin';
 
@@ -31,6 +31,10 @@ export const UsersView: React.FC = () => {
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<ModalMode>(null);
   const [saving, setSaving] = useState(false);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+  const [passwordResetError, setPasswordResetError] = useState('');
 
   const [form, setForm] = useState({ email: '', password: '', name: '', role: 'viewer' as UserRole, department: '' });
 
@@ -48,6 +52,10 @@ export const UsersView: React.FC = () => {
 
   const openEditModal = (target: UserProfile) => {
     setForm({ email: target.email, password: '', name: target.name, role: target.role, department: target.department });
+    setShowPasswordReset(false);
+    setNewPassword('');
+    setNewPasswordConfirm('');
+    setPasswordResetError('');
     setModal({ kind: 'edit', target });
   };
 
@@ -55,6 +63,19 @@ export const UsersView: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPasswordResetError('');
+
+    if (modal?.kind === 'edit' && showPasswordReset) {
+      if (newPassword.length < 8) {
+        setPasswordResetError('La contraseña debe tener al menos 8 caracteres.');
+        return;
+      }
+      if (newPassword !== newPasswordConfirm) {
+        setPasswordResetError('Las contraseñas no coinciden.');
+        return;
+      }
+    }
+
     setSaving(true);
     if (modal?.kind === 'create') {
       await createUser({ email: form.email, password: form.password, name: form.name, role: form.role, department: form.department || undefined });
@@ -65,6 +86,9 @@ export const UsersView: React.FC = () => {
       }
       if (form.role !== target.role) {
         await updateUserRole(target.id, form.role);
+      }
+      if (showPasswordReset && newPassword) {
+        await adminSetUserPassword(target.id, newPassword);
       }
     }
     setSaving(false);
@@ -313,6 +337,55 @@ export const UsersView: React.FC = () => {
                       onChange={(e) => setForm({ ...form, department: e.target.value })}
                       className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-[#003876]"
                     />
+                  </div>
+
+                  <div className="pt-1">
+                    {!showPasswordReset ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswordReset(true)}
+                        className="flex items-center gap-1.5 text-[#003876] font-bold hover:underline cursor-pointer"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        Restablecer contraseña
+                      </button>
+                    ) : (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1.5 font-bold text-amber-800">
+                            <KeyRound className="w-3.5 h-3.5" />
+                            Nueva contraseña
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => { setShowPasswordReset(false); setNewPassword(''); setNewPasswordConfirm(''); setPasswordResetError(''); }}
+                            className="text-amber-700 hover:text-amber-900 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <input
+                          type="password"
+                          minLength={8}
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Mínimo 8 caracteres"
+                          className="w-full bg-white border border-amber-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-amber-500"
+                        />
+                        <input
+                          type="password"
+                          minLength={8}
+                          value={newPasswordConfirm}
+                          onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                          placeholder="Confirmar contraseña"
+                          className="w-full bg-white border border-amber-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-amber-500"
+                        />
+                        {passwordResetError && (
+                          <p className="text-red-600 font-semibold">{passwordResetError}</p>
+                        )}
+                        <p className="text-amber-700">El usuario cerrará sesión en todos sus dispositivos y deberá usar esta nueva contraseña.</p>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
