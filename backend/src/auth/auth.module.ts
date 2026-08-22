@@ -10,7 +10,13 @@ import { AuditModule } from '../audit/audit.module';
 import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-  imports: [PassportModule, JwtModule.register({}), UsersModule, AuditModule, SettingsModule],
+  imports: [
+    PassportModule,
+    JwtModule.register({}),
+    UsersModule,
+    AuditModule,
+    SettingsModule,
+  ],
   providers: [AuthService, AttemptLimiterService, JwtStrategy],
   controllers: [AuthController],
   exports: [AuthService],

@@ -8,7 +8,10 @@ describe('AuditService', () => {
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
-      providers: [AuditService, { provide: PrismaService, useValue: prismaMock }],
+      providers: [
+        AuditService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
     }).compile();
     service = moduleRef.get(AuditService);
   });
@@ -22,7 +25,10 @@ describe('AuditService', () => {
       result: 'Exitoso',
     });
     expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ action: 'Inicio de sesión', result: 'Exitoso' }),
+      data: expect.objectContaining({
+        action: 'Inicio de sesión',
+        result: 'Exitoso',
+      }),
     });
   });
 });

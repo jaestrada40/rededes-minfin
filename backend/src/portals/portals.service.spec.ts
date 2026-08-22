@@ -7,10 +7,17 @@ describe('PortalsService', () => {
   let service: PortalsService;
   const prismaMock = {
     wordPressPortal: {
-      findMany: jest.fn().mockResolvedValue([{ id: 'wp1', domain: 'portal1.example.gt' }, { id: 'wp2', domain: 'portal2.example.gt' }]),
-      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'wp1', domain: 'portal1.example.gt' }),
+      findMany: jest.fn().mockResolvedValue([
+        { id: 'wp1', domain: 'portal1.example.gt' },
+        { id: 'wp2', domain: 'portal2.example.gt' },
+      ]),
+      findUniqueOrThrow: jest
+        .fn()
+        .mockResolvedValue({ id: 'wp1', domain: 'portal1.example.gt' }),
       updateMany: jest.fn().mockResolvedValue({}),
-      update: jest.fn().mockResolvedValue({ id: 'wp1', connectionStatus: 'connected' }),
+      update: jest
+        .fn()
+        .mockResolvedValue({ id: 'wp1', connectionStatus: 'connected' }),
     },
     feedPortal: {
       deleteMany: jest.fn().mockResolvedValue({}),
@@ -42,7 +49,9 @@ describe('PortalsService', () => {
 
   it('assigns a feed to the given portals, replacing prior assignments', async () => {
     await service.assignFeedToPortals('f1', ['wp1', 'wp2'], actor);
-    expect(prismaMock.feedPortal.deleteMany).toHaveBeenCalledWith({ where: { feedId: 'f1' } });
+    expect(prismaMock.feedPortal.deleteMany).toHaveBeenCalledWith({
+      where: { feedId: 'f1' },
+    });
     expect(prismaMock.feedPortal.createMany).toHaveBeenCalledWith({
       data: [
         { feedId: 'f1', portalId: 'wp1' },
@@ -65,7 +74,9 @@ describe('PortalsService', () => {
   it('marks all portals connected after syncAll', async () => {
     await service.syncAll(actor);
     expect(prismaMock.wordPressPortal.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ connectionStatus: 'connected' }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ connectionStatus: 'connected' }),
+      }),
     );
   });
 

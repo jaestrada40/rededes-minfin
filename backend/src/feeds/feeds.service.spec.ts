@@ -25,7 +25,9 @@ describe('FeedsService', () => {
     feed: {
       create: jest.fn().mockResolvedValue(feedRow),
       findMany: jest.fn().mockResolvedValue([feedRow]),
-      findUniqueOrThrow: jest.fn().mockResolvedValue({ ...feedRow, posts: [], portals: [] }),
+      findUniqueOrThrow: jest
+        .fn()
+        .mockResolvedValue({ ...feedRow, posts: [], portals: [] }),
       findFirst: jest.fn().mockResolvedValue({ ...feedRow, posts: [] }),
       update: jest.fn().mockResolvedValue(feedRow),
       delete: jest.fn().mockResolvedValue(feedRow),
@@ -42,7 +44,9 @@ describe('FeedsService', () => {
     },
     socialPost: {
       findUnique: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockResolvedValue({ id: 'p1', network: 'x', postId: '123' }),
+      create: jest
+        .fn()
+        .mockResolvedValue({ id: 'p1', network: 'x', postId: '123' }),
       update: jest.fn().mockResolvedValue({ id: 'p1', content: 'nuevo' }),
     },
     user: {
@@ -55,7 +59,9 @@ describe('FeedsService', () => {
   const actor = { id: 'u1', email: 'a@minfin.gob.gt', role: 'admin' };
 
   beforeEach(() => {
-    global.fetch = jest.fn().mockRejectedValue(new Error('network disabled in unit tests'));
+    global.fetch = jest
+      .fn()
+      .mockRejectedValue(new Error('network disabled in unit tests'));
   });
 
   afterEach(() => {
@@ -68,7 +74,12 @@ describe('FeedsService', () => {
         FeedsService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuditService, useValue: auditMock },
-        { provide: SettingsService, useValue: { get: jest.fn().mockResolvedValue({ officialAccounts: {} }) } },
+        {
+          provide: SettingsService,
+          useValue: {
+            get: jest.fn().mockResolvedValue({ officialAccounts: {} }),
+          },
+        },
         { provide: AuthService, useValue: authMock },
       ],
     }).compile();
@@ -123,6 +134,8 @@ describe('FeedsService', () => {
 
   it('returns 404 for a feed that exists but is not active', async () => {
     prismaMock.feed.findFirst.mockResolvedValueOnce(null);
-    await expect(service.findPublicBySlug('borrador-interno')).rejects.toThrow('Feed no encontrado');
+    await expect(service.findPublicBySlug('borrador-interno')).rejects.toThrow(
+      'Feed no encontrado',
+    );
   });
 });

@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -11,7 +21,9 @@ import { ReorderPostsDto } from './dto/reorder-posts.dto';
 import { UpdatePostContentDto } from './dto/update-post-content.dto';
 import { MfaCodeDto } from './dto/mfa-code.dto';
 
-type AuthedRequest = Request & { user: { id: string; email: string; role: string } };
+type AuthedRequest = Request & {
+  user: { id: string; email: string; role: string };
+};
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller()
@@ -38,7 +50,11 @@ export class FeedsController {
 
   @Roles('super_admin', 'admin', 'editor')
   @Patch('feeds/:id')
-  update(@Param('id') id: string, @Body() dto: UpdateFeedDto, @Req() req: AuthedRequest) {
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateFeedDto,
+    @Req() req: AuthedRequest,
+  ) {
     return this.feeds.update(id, dto, req.user);
   }
 
@@ -56,7 +72,11 @@ export class FeedsController {
 
   @Roles('super_admin', 'admin', 'editor')
   @Post('feeds/:id/posts')
-  addPost(@Param('id') id: string, @Body() dto: AddPostDto, @Req() req: AuthedRequest) {
+  addPost(
+    @Param('id') id: string,
+    @Body() dto: AddPostDto,
+    @Req() req: AuthedRequest,
+  ) {
     return this.feeds.addPost(id, dto, req.user);
   }
 
@@ -73,13 +93,21 @@ export class FeedsController {
 
   @Roles('super_admin', 'admin', 'editor')
   @Patch('feeds/:id/posts/reorder')
-  reorder(@Param('id') id: string, @Body() dto: ReorderPostsDto, @Req() req: AuthedRequest) {
+  reorder(
+    @Param('id') id: string,
+    @Body() dto: ReorderPostsDto,
+    @Req() req: AuthedRequest,
+  ) {
     return this.feeds.reorderPosts(id, dto.orderedPostIds, req.user);
   }
 
   @Roles('super_admin', 'admin', 'editor')
   @Patch('posts/:id')
-  updatePostContent(@Param('id') id: string, @Body() dto: UpdatePostContentDto, @Req() req: AuthedRequest) {
+  updatePostContent(
+    @Param('id') id: string,
+    @Body() dto: UpdatePostContentDto,
+    @Req() req: AuthedRequest,
+  ) {
     return this.feeds.updatePostContent(id, dto.content, req.user, dto.mfaCode);
   }
 

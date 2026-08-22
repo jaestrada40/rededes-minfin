@@ -16,7 +16,10 @@ export class PortalsService {
     return this.prisma.wordPressPortal.findMany({ orderBy: { name: 'asc' } });
   }
 
-  async create(dto: CreatePortalDto, actor: { id: string; email: string; role: string }): Promise<WordPressPortal> {
+  async create(
+    dto: CreatePortalDto,
+    actor: { id: string; email: string; role: string },
+  ): Promise<WordPressPortal> {
     const portal = await this.prisma.wordPressPortal.create({
       data: {
         name: dto.name,
@@ -47,7 +50,10 @@ export class PortalsService {
     dto: UpdatePortalDto,
     actor: { id: string; email: string; role: string },
   ): Promise<WordPressPortal> {
-    const portal = await this.prisma.wordPressPortal.update({ where: { id }, data: dto });
+    const portal = await this.prisma.wordPressPortal.update({
+      where: { id },
+      data: dto,
+    });
 
     await this.audit.log({
       userId: actor.id,
@@ -63,7 +69,10 @@ export class PortalsService {
     return portal;
   }
 
-  async remove(id: string, actor: { id: string; email: string; role: string }): Promise<void> {
+  async remove(
+    id: string,
+    actor: { id: string; email: string; role: string },
+  ): Promise<void> {
     const portal = await this.prisma.wordPressPortal.delete({ where: { id } });
 
     await this.audit.log({
@@ -104,9 +113,16 @@ export class PortalsService {
     });
   }
 
-  async batchAssignFeedToAllPortals(feedId: string, actor: { id: string; email: string; role: string }): Promise<void> {
+  async batchAssignFeedToAllPortals(
+    feedId: string,
+    actor: { id: string; email: string; role: string },
+  ): Promise<void> {
     const portals = await this.prisma.wordPressPortal.findMany();
-    await this.assignFeedToPortals(feedId, portals.map((p) => p.id), actor);
+    await this.assignFeedToPortals(
+      feedId,
+      portals.map((p) => p.id),
+      actor,
+    );
   }
 
   // El gestor no tiene credenciales para autenticarse contra el WP REST API
@@ -125,7 +141,9 @@ export class PortalsService {
         method: 'GET',
         redirect: 'follow',
         signal: controller.signal,
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MinfinGestorBot/1.0)' },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; MinfinGestorBot/1.0)',
+        },
       });
       return true;
     } catch {
@@ -135,7 +153,11 @@ export class PortalsService {
     }
   }
 
-  async syncAll(actor: { id: string; email: string; role: string }): Promise<void> {
+  async syncAll(actor: {
+    id: string;
+    email: string;
+    role: string;
+  }): Promise<void> {
     const portals = await this.prisma.wordPressPortal.findMany();
 
     await Promise.all(
@@ -162,8 +184,13 @@ export class PortalsService {
     });
   }
 
-  async testConnection(portalId: string, actor: { id: string; email: string; role: string }): Promise<boolean> {
-    const target = await this.prisma.wordPressPortal.findUniqueOrThrow({ where: { id: portalId } });
+  async testConnection(
+    portalId: string,
+    actor: { id: string; email: string; role: string },
+  ): Promise<boolean> {
+    const target = await this.prisma.wordPressPortal.findUniqueOrThrow({
+      where: { id: portalId },
+    });
     const reachable = await this.checkPortalReachable(target.domain);
 
     const portal = await this.prisma.wordPressPortal.update({

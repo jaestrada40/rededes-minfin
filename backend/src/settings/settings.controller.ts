@@ -13,7 +13,9 @@ export class SettingsController {
 
   @Roles('super_admin', 'admin', 'editor')
   @Get()
-  async get(@Req() req: Request & { user: { id: string; email: string; role: string } }) {
+  async get(
+    @Req() req: Request & { user: { id: string; email: string; role: string } },
+  ) {
     const settings = await this.settings.get();
     if (req.user.role !== 'super_admin') {
       return { ...settings, webhookSecret: undefined, apiKeys: undefined };
@@ -23,7 +25,10 @@ export class SettingsController {
 
   @Roles('super_admin')
   @Patch()
-  update(@Body() dto: UpdateSettingsDto, @Req() req: Request & { user: { id: string; email: string; role: string } }) {
+  update(
+    @Body() dto: UpdateSettingsDto,
+    @Req() req: Request & { user: { id: string; email: string; role: string } },
+  ) {
     return this.settings.update(dto, req.user);
   }
 }

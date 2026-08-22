@@ -6,41 +6,247 @@ const prisma = new PrismaClient();
 
 const ROLE_NAMES = ['super_admin', 'admin', 'editor'] as const;
 
+// Datos de portales de demostración. Se conservan a propósito aunque no se
+// usen: el bloque que los siembra está comentado más abajo, para poder
+// registrar los portales reales uno por uno desde la UI.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const PORTALS = [
-  { name: 'Portal Principal MINFIN', domain: 'minfin.gob.gt', category: 'Institucional', description: 'Portal web matriz y oficial del Ministerio de Finanzas Públicas de Guatemala.' },
-  { name: 'Portal de Transparencia Fiscal', domain: 'transparencia.minfin.gob.gt', category: 'Transparencia', description: 'Plataforma ciudadana de rendición de cuentas, ejecución presupuestaria y compras.' },
-  { name: 'Portal Presupuesto Abierto', domain: 'presupuestoabierto.minfin.gob.gt', category: 'Finanzas', description: 'Talleres, metodologías y formulación presupuestaria abierta con la sociedad civil.' },
-  { name: 'Guatecompras (Portal Informativo)', domain: 'info.guatecompras.gt', category: 'Sistemas', description: 'Sección informativa y comunicados del Sistema de Contrataciones y Adquisiciones del Estado.' },
-  { name: 'Sistema SICOIN Web Info', domain: 'sicoin.minfin.gob.gt', category: 'Sistemas', description: 'Manuales, avisos de mantenimiento y normativas del Sistema de Contabilidad Integrada.' },
-  { name: 'Portal de Datos Abiertos MINFIN', domain: 'datos.minfin.gob.gt', category: 'Transparencia', description: 'Catálogos de datos abiertos en formatos interoperables (CSV, JSON, XML).' },
-  { name: 'Registro General de Proveedores del Estado (RGL)', domain: 'rgl.minfin.gob.gt', category: 'Sistemas', description: 'Información institucional, requisitos de habilitación y precalificación de contratistas.' },
-  { name: 'Dirección Técnica del Presupuesto (DTP)', domain: 'dtp.minfin.gob.gt', category: 'Direcciones', description: 'Guías de formulación, techos presupuestarios y clasificadores del gasto público.' },
-  { name: 'Dirección de Crédito Público (DCP)', domain: 'creditopublico.minfin.gob.gt', category: 'Direcciones', description: 'Estadísticas de deuda pública, colocación de Eurobonos y Bonos del Tesoro de Guatemala.' },
-  { name: 'Portal de Capacitaciones DTI - MINFIN', domain: 'capacitacion.minfin.gob.gt', category: 'Institucional', description: 'Cursos virtuales sobre SIGES, SICOIN, Guatecompras y gestión fiscal.' },
-  { name: 'Dirección de Contabilidad del Estado (DCE)', domain: 'contabilidad.minfin.gob.gt', category: 'Direcciones', description: 'Liquidaciones presupuestarias anuales, estados financieros del Estado y balance general.' },
-  { name: 'Dirección de Bienes del Estado (DBE)', domain: 'bienesdelestado.minfin.gob.gt', category: 'Direcciones', description: 'Registro de bienes inmuebles del Estado, desadscripciones y trámites de terrenos.' },
-  { name: 'Dirección de Asistencia a la Administración Financiera (DAAFIM)', domain: 'daafim.minfin.gob.gt', category: 'Direcciones', description: 'Asesoría y acompañamiento a municipalidades y entidades descentralizadas.' },
-  { name: 'Portal Normativo Fiscal y Leyes', domain: 'normativa.minfin.gob.gt', category: 'Transparencia', description: 'Acuerdos ministeriales, decretos, reglamentos tributarios y manuales vigentes.' },
-  { name: 'Dirección de Fideicomisos', domain: 'fideicomisos.minfin.gob.gt', category: 'Finanzas', description: 'Auditorías, estados de cuenta e informes trimestrales de fideicomisos públicos.' },
-  { name: 'Portal de Becas y Cooperación Financiera', domain: 'cooperacion.minfin.gob.gt', category: 'Institucional', description: 'Gestión de donaciones internacionales y convenios de organismos multilaterales (BID, BM).' },
-  { name: 'Tribunal Administrativo Tributario y Aduanero (TRIBUTA)', domain: 'tributa.minfin.gob.gt', category: 'Institucional', description: 'Resoluciones, criterios jurisprudenciales y convocatorias de vistas públicas.' },
-  { name: 'Portal de Empleo y Convocatorias MINFIN', domain: 'empleo.minfin.gob.gt', category: 'Institucional', description: 'Convocatorias públicas bajo renglones 011, 022 y 029 de la Dirección de Recursos Humanos.' },
-  { name: 'Observatorio del Gasto Social', domain: 'observatorio.minfin.gob.gt', category: 'Transparencia', description: 'Métricas de inversión en salud, educación, nutrición infantil e infraestructura vial.' },
-  { name: 'Dirección de Análisis Fiscal y Macroeconomía', domain: 'macro.minfin.gob.gt', category: 'Finanzas', description: 'Boletines de coyuntura económica, recaudación tributaria y metas macrofiscales.' },
-  { name: 'Portal de Compras Eficientes para Municipalidades', domain: 'comprasmunicipales.minfin.gob.gt', category: 'Sistemas', description: 'Guías simplificadas de compras directas y cotizaciones para las 340 municipalidades.' },
-  { name: 'Portal Internacional de Inversionistas MINFIN', domain: 'investors.minfin.gob.gt', category: 'Finanzas', description: 'Sovereign Debt Investor Relations portal for international rating agencies and bondholders.' },
-  { name: 'Ventanilla Única de Trámites Fiscales', domain: 'tramites.minfin.gob.gt', category: 'Institucional', description: 'Gestión electrónica de solvencias, certificaciones de pago a proveedores y consultas.' },
-  { name: 'Portal del Archivo General de Finanzas', domain: 'archivo.minfin.gob.gt', category: 'Institucional', description: 'Catálogo histórico de memoria de labores y registros financieros de la República.' },
-  { name: 'Portal de Auditoría Interna (UDAI)', domain: 'auditoria.minfin.gob.gt', category: 'Transparencia', description: 'Planes anuales de auditoría, control interno gubernamental y código de ética.' },
+  {
+    name: 'Portal Principal MINFIN',
+    domain: 'minfin.gob.gt',
+    category: 'Institucional',
+    description:
+      'Portal web matriz y oficial del Ministerio de Finanzas Públicas de Guatemala.',
+  },
+  {
+    name: 'Portal de Transparencia Fiscal',
+    domain: 'transparencia.minfin.gob.gt',
+    category: 'Transparencia',
+    description:
+      'Plataforma ciudadana de rendición de cuentas, ejecución presupuestaria y compras.',
+  },
+  {
+    name: 'Portal Presupuesto Abierto',
+    domain: 'presupuestoabierto.minfin.gob.gt',
+    category: 'Finanzas',
+    description:
+      'Talleres, metodologías y formulación presupuestaria abierta con la sociedad civil.',
+  },
+  {
+    name: 'Guatecompras (Portal Informativo)',
+    domain: 'info.guatecompras.gt',
+    category: 'Sistemas',
+    description:
+      'Sección informativa y comunicados del Sistema de Contrataciones y Adquisiciones del Estado.',
+  },
+  {
+    name: 'Sistema SICOIN Web Info',
+    domain: 'sicoin.minfin.gob.gt',
+    category: 'Sistemas',
+    description:
+      'Manuales, avisos de mantenimiento y normativas del Sistema de Contabilidad Integrada.',
+  },
+  {
+    name: 'Portal de Datos Abiertos MINFIN',
+    domain: 'datos.minfin.gob.gt',
+    category: 'Transparencia',
+    description:
+      'Catálogos de datos abiertos en formatos interoperables (CSV, JSON, XML).',
+  },
+  {
+    name: 'Registro General de Proveedores del Estado (RGL)',
+    domain: 'rgl.minfin.gob.gt',
+    category: 'Sistemas',
+    description:
+      'Información institucional, requisitos de habilitación y precalificación de contratistas.',
+  },
+  {
+    name: 'Dirección Técnica del Presupuesto (DTP)',
+    domain: 'dtp.minfin.gob.gt',
+    category: 'Direcciones',
+    description:
+      'Guías de formulación, techos presupuestarios y clasificadores del gasto público.',
+  },
+  {
+    name: 'Dirección de Crédito Público (DCP)',
+    domain: 'creditopublico.minfin.gob.gt',
+    category: 'Direcciones',
+    description:
+      'Estadísticas de deuda pública, colocación de Eurobonos y Bonos del Tesoro de Guatemala.',
+  },
+  {
+    name: 'Portal de Capacitaciones DTI - MINFIN',
+    domain: 'capacitacion.minfin.gob.gt',
+    category: 'Institucional',
+    description:
+      'Cursos virtuales sobre SIGES, SICOIN, Guatecompras y gestión fiscal.',
+  },
+  {
+    name: 'Dirección de Contabilidad del Estado (DCE)',
+    domain: 'contabilidad.minfin.gob.gt',
+    category: 'Direcciones',
+    description:
+      'Liquidaciones presupuestarias anuales, estados financieros del Estado y balance general.',
+  },
+  {
+    name: 'Dirección de Bienes del Estado (DBE)',
+    domain: 'bienesdelestado.minfin.gob.gt',
+    category: 'Direcciones',
+    description:
+      'Registro de bienes inmuebles del Estado, desadscripciones y trámites de terrenos.',
+  },
+  {
+    name: 'Dirección de Asistencia a la Administración Financiera (DAAFIM)',
+    domain: 'daafim.minfin.gob.gt',
+    category: 'Direcciones',
+    description:
+      'Asesoría y acompañamiento a municipalidades y entidades descentralizadas.',
+  },
+  {
+    name: 'Portal Normativo Fiscal y Leyes',
+    domain: 'normativa.minfin.gob.gt',
+    category: 'Transparencia',
+    description:
+      'Acuerdos ministeriales, decretos, reglamentos tributarios y manuales vigentes.',
+  },
+  {
+    name: 'Dirección de Fideicomisos',
+    domain: 'fideicomisos.minfin.gob.gt',
+    category: 'Finanzas',
+    description:
+      'Auditorías, estados de cuenta e informes trimestrales de fideicomisos públicos.',
+  },
+  {
+    name: 'Portal de Becas y Cooperación Financiera',
+    domain: 'cooperacion.minfin.gob.gt',
+    category: 'Institucional',
+    description:
+      'Gestión de donaciones internacionales y convenios de organismos multilaterales (BID, BM).',
+  },
+  {
+    name: 'Tribunal Administrativo Tributario y Aduanero (TRIBUTA)',
+    domain: 'tributa.minfin.gob.gt',
+    category: 'Institucional',
+    description:
+      'Resoluciones, criterios jurisprudenciales y convocatorias de vistas públicas.',
+  },
+  {
+    name: 'Portal de Empleo y Convocatorias MINFIN',
+    domain: 'empleo.minfin.gob.gt',
+    category: 'Institucional',
+    description:
+      'Convocatorias públicas bajo renglones 011, 022 y 029 de la Dirección de Recursos Humanos.',
+  },
+  {
+    name: 'Observatorio del Gasto Social',
+    domain: 'observatorio.minfin.gob.gt',
+    category: 'Transparencia',
+    description:
+      'Métricas de inversión en salud, educación, nutrición infantil e infraestructura vial.',
+  },
+  {
+    name: 'Dirección de Análisis Fiscal y Macroeconomía',
+    domain: 'macro.minfin.gob.gt',
+    category: 'Finanzas',
+    description:
+      'Boletines de coyuntura económica, recaudación tributaria y metas macrofiscales.',
+  },
+  {
+    name: 'Portal de Compras Eficientes para Municipalidades',
+    domain: 'comprasmunicipales.minfin.gob.gt',
+    category: 'Sistemas',
+    description:
+      'Guías simplificadas de compras directas y cotizaciones para las 340 municipalidades.',
+  },
+  {
+    name: 'Portal Internacional de Inversionistas MINFIN',
+    domain: 'investors.minfin.gob.gt',
+    category: 'Finanzas',
+    description:
+      'Sovereign Debt Investor Relations portal for international rating agencies and bondholders.',
+  },
+  {
+    name: 'Ventanilla Única de Trámites Fiscales',
+    domain: 'tramites.minfin.gob.gt',
+    category: 'Institucional',
+    description:
+      'Gestión electrónica de solvencias, certificaciones de pago a proveedores y consultas.',
+  },
+  {
+    name: 'Portal del Archivo General de Finanzas',
+    domain: 'archivo.minfin.gob.gt',
+    category: 'Institucional',
+    description:
+      'Catálogo histórico de memoria de labores y registros financieros de la República.',
+  },
+  {
+    name: 'Portal de Auditoría Interna (UDAI)',
+    domain: 'auditoria.minfin.gob.gt',
+    category: 'Transparencia',
+    description:
+      'Planes anuales de auditoría, control interno gubernamental y código de ética.',
+  },
 ];
 
 const OFFICIAL_ACCOUNTS = {
-  x: { network: 'x', handle: '@MinfinGT', url: 'https://x.com/MinfinGT', verified: true, name: 'Ministerio de Finanzas Públicas', description: 'Cuenta oficial del Ministerio de Finanzas Públicas de la República de Guatemala.', avatarUrl: '' },
-  facebook: { network: 'facebook', handle: 'minfin.gt', url: 'https://facebook.com/minfin.gt', verified: true, name: 'Ministerio de Finanzas Públicas de Guatemala', description: 'Página verificada institucional del Gobierno de Guatemala.', avatarUrl: '' },
-  instagram: { network: 'instagram', handle: '@minfingua', url: 'https://instagram.com/minfingua', verified: true, name: 'MINFIN Guatemala', description: 'Transparencia, finanzas públicas y desarrollo para Guatemala.', avatarUrl: '' },
-  youtube: { network: 'youtube', handle: '@MinfinGuatemalaOficial', url: 'https://youtube.com/@MinfinGuatemalaOficial', verified: true, name: 'MINFIN Guatemala Oficial', description: 'Canal oficial de videos, tutoriales y transmisiones en directo.', avatarUrl: '' },
-  linkedin: { network: 'linkedin', handle: 'minfingobgt', url: 'https://linkedin.com/company/minfingobgt', verified: true, name: 'Ministerio de Finanzas Públicas (MINFIN)', description: 'Entidad rectora de las finanzas públicas del Estado de Guatemala.', avatarUrl: '' },
-  tiktok: { network: 'tiktok', handle: '@minfingua', url: 'https://tiktok.com/@minfingua', verified: true, name: 'MINFIN Educa', description: 'Cápsulas educativas sobre presupuesto y transparencia.', avatarUrl: '' },
+  x: {
+    network: 'x',
+    handle: '@MinfinGT',
+    url: 'https://x.com/MinfinGT',
+    verified: true,
+    name: 'Ministerio de Finanzas Públicas',
+    description:
+      'Cuenta oficial del Ministerio de Finanzas Públicas de la República de Guatemala.',
+    avatarUrl: '',
+  },
+  facebook: {
+    network: 'facebook',
+    handle: 'minfin.gt',
+    url: 'https://facebook.com/minfin.gt',
+    verified: true,
+    name: 'Ministerio de Finanzas Públicas de Guatemala',
+    description: 'Página verificada institucional del Gobierno de Guatemala.',
+    avatarUrl: '',
+  },
+  instagram: {
+    network: 'instagram',
+    handle: '@minfingua',
+    url: 'https://instagram.com/minfingua',
+    verified: true,
+    name: 'MINFIN Guatemala',
+    description:
+      'Transparencia, finanzas públicas y desarrollo para Guatemala.',
+    avatarUrl: '',
+  },
+  youtube: {
+    network: 'youtube',
+    handle: '@MinfinGuatemalaOficial',
+    url: 'https://youtube.com/@MinfinGuatemalaOficial',
+    verified: true,
+    name: 'MINFIN Guatemala Oficial',
+    description:
+      'Canal oficial de videos, tutoriales y transmisiones en directo.',
+    avatarUrl: '',
+  },
+  linkedin: {
+    network: 'linkedin',
+    handle: 'minfingobgt',
+    url: 'https://linkedin.com/company/minfingobgt',
+    verified: true,
+    name: 'Ministerio de Finanzas Públicas (MINFIN)',
+    description:
+      'Entidad rectora de las finanzas públicas del Estado de Guatemala.',
+    avatarUrl: '',
+  },
+  tiktok: {
+    network: 'tiktok',
+    handle: '@minfingua',
+    url: 'https://tiktok.com/@minfingua',
+    verified: true,
+    name: 'MINFIN Educa',
+    description: 'Cápsulas educativas sobre presupuesto y transparencia.',
+    avatarUrl: '',
+  },
 };
 
 async function main() {
@@ -55,7 +261,9 @@ async function main() {
   // El usuario sembrado es la cuenta de DTI, dueña técnica del sistema —
   // recibe el rol de mayor privilegio (super_admin), no "admin" (ese queda
   // para la jefatura de Comunicación Social, creada luego desde la UI).
-  const superAdminRole = await prisma.role.findUniqueOrThrow({ where: { name: 'super_admin' } });
+  const superAdminRole = await prisma.role.findUniqueOrThrow({
+    where: { name: 'super_admin' },
+  });
 
   // Sin valores por defecto: esta cuenta es el super_admin de DTI y su
   // contraseña protege el endpoint /auth/login, alcanzable por red. Un
@@ -92,7 +300,12 @@ async function main() {
       id: 'default',
       institutionName: 'Ministerio de Finanzas Públicas de Guatemala (MINFIN)',
       webhookSecret: crypto.randomBytes(32).toString('hex'),
-      allowedCorsDomains: ['*.minfin.gob.gt', '*.guatecompras.gt', 'minfin.gob.gt', 'guatecompras.gt'],
+      allowedCorsDomains: [
+        '*.minfin.gob.gt',
+        '*.guatecompras.gt',
+        'minfin.gob.gt',
+        'guatecompras.gt',
+      ],
       officialAccounts: OFFICIAL_ACCOUNTS,
     },
   });

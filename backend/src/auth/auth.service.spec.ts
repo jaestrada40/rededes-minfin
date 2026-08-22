@@ -25,7 +25,9 @@ describe('AuthService', () => {
 
   const usersMock = { findByEmail: jest.fn().mockResolvedValue(userNoMfa) };
   const auditMock = { log: jest.fn() };
-  const settingsMock = { get: jest.fn().mockResolvedValue({ mfaRequired: true }) };
+  const settingsMock = {
+    get: jest.fn().mockResolvedValue({ mfaRequired: true }),
+  };
   const prismaMock = {
     mfaSettings: {
       create: jest.fn().mockResolvedValue({}),
@@ -72,26 +74,41 @@ describe('AuthService', () => {
 
   it('rejects an invalid password without revealing account existence', async () => {
     await expect(service.login('a@minfin.gob.gt', 'wrong')).rejects.toThrow();
-    expect(auditMock.log).toHaveBeenCalledWith(expect.objectContaining({ result: 'Fallido' }));
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({ result: 'Fallido' }),
+    );
   });
 
   it('issues tokens after completing MFA setup with a valid TOTP code', async () => {
     // El secreto pendiente vive en la base, no en el token: se captura lo que
     // mfaSetup guardó y se descifra igual que lo hace el servicio.
     let storedSecretEncrypted = '';
-    prismaMock.mfaSettings.upsert = jest.fn().mockImplementation(({ create }: any) => {
-      storedSecretEncrypted = create.secretEncrypted;
-      return Promise.resolve({});
-    });
+    prismaMock.mfaSettings.upsert = jest
+      .fn()
+      .mockImplementation(({ create }: any) => {
+        storedSecretEncrypted = create.secretEncrypted;
+        return Promise.resolve({});
+      });
     prismaMock.mfaSettings.findUnique = jest
       .fn()
-      .mockImplementation(() => Promise.resolve(storedSecretEncrypted ? { secretEncrypted: storedSecretEncrypted, verifiedAt: null } : null));
+      .mockImplementation(() =>
+        Promise.resolve(
+          storedSecretEncrypted
+            ? { secretEncrypted: storedSecretEncrypted, verifiedAt: null }
+            : null,
+        ),
+      );
 
-    const { setupToken } = await service.login('a@minfin.gob.gt', 'Password123!');
+    const { setupToken } = await service.login(
+      'a@minfin.gob.gt',
+      'Password123!',
+    );
     const { verifyToken, qrDataUrl } = await service.mfaSetup(setupToken!);
     expect(qrDataUrl).toContain('data:image');
 
-    const code = authenticator.generate((service as any).decryptSecret(storedSecretEncrypted));
+    const code = authenticator.generate(
+      (service as any).decryptSecret(storedSecretEncrypted),
+    );
 
     const tokens = await service.mfaSetupVerify(verifyToken, code);
     expect(tokens.accessToken).toBeDefined();
@@ -100,41 +117,56 @@ describe('AuthService', () => {
 
   it('never puts the TOTP secret in the setup token payload', async () => {
     let storedSecretEncrypted = '';
-    prismaMock.mfaSettings.upsert = jest.fn().mockImplementation(({ create }: any) => {
-      storedSecretEncrypted = create.secretEncrypted;
-      return Promise.resolve({});
-    });
+    prismaMock.mfaSettings.upsert = jest
+      .fn()
+      .mockImplementation(({ create }: any) => {
+        storedSecretEncrypted = create.secretEncrypted;
+        return Promise.resolve({});
+      });
     prismaMock.mfaSettings.findUnique = jest.fn().mockResolvedValue(null);
 
-    const { setupToken } = await service.login('a@minfin.gob.gt', 'Password123!');
+    const { setupToken } = await service.login(
+      'a@minfin.gob.gt',
+      'Password123!',
+    );
     const { verifyToken } = await service.mfaSetup(setupToken!);
 
     // Un JWT va firmado pero NO cifrado: quien intercepte el token puede leer
     // su payload en base64. El secreto tiene que quedar solo del lado del
     // servidor, cifrado.
-    const payload = JSON.parse(Buffer.from(verifyToken.split('.')[1], 'base64').toString());
+    const payload = JSON.parse(
+      Buffer.from(verifyToken.split('.')[1], 'base64').toString(),
+    );
     expect(payload.secret).toBeUndefined();
     expect(JSON.stringify(payload)).not.toContain(storedSecretEncrypted);
   });
 
   it('locks the account after repeated failed logins instead of allowing unlimited guesses', async () => {
     for (let i = 0; i < 5; i++) {
-      await expect(service.login('a@minfin.gob.gt', 'wrong')).rejects.toThrow('Credenciales inválidas');
+      await expect(service.login('a@minfin.gob.gt', 'wrong')).rejects.toThrow(
+        'Credenciales inválidas',
+      );
     }
 
     // El sexto intento ya no llega a comparar la contraseña: responde 429.
-    await expect(service.login('a@minfin.gob.gt', 'wrong')).rejects.toMatchObject({
+    await expect(
+      service.login('a@minfin.gob.gt', 'wrong'),
+    ).rejects.toMatchObject({
       status: 429,
     });
     // Incluso con la contraseña correcta, el bloqueo sigue vigente.
-    await expect(service.login('a@minfin.gob.gt', 'Password123!')).rejects.toMatchObject({
+    await expect(
+      service.login('a@minfin.gob.gt', 'Password123!'),
+    ).rejects.toMatchObject({
       status: 429,
     });
   });
 
   it('locks MFA step-up verification after repeated invalid codes', async () => {
     prismaMock.mfaSettings.findUnique = jest.fn().mockResolvedValue({
-      secretEncrypted: (service as any).encryptSecret(authenticator.generateSecret()),
+      secretEncrypted: (service as any).encryptSecret(
+        authenticator.generateSecret(),
+      ),
       verifiedAt: new Date(),
     });
 
@@ -142,14 +174,18 @@ describe('AuthService', () => {
       expect(await service.verifyMfaCode('u-stepup', '000000')).toBe(false);
     }
 
-    await expect(service.verifyMfaCode('u-stepup', '000000')).rejects.toMatchObject({ status: 429 });
+    await expect(
+      service.verifyMfaCode('u-stepup', '000000'),
+    ).rejects.toMatchObject({ status: 429 });
   });
 
   it('does not skip the bcrypt comparison when the email is unknown', async () => {
     usersMock.findByEmail.mockResolvedValueOnce(null);
 
     const start = process.hrtime.bigint();
-    await expect(service.login('nadie@minfin.gob.gt', 'cualquiera')).rejects.toThrow('Credenciales inválidas');
+    await expect(
+      service.login('nadie@minfin.gob.gt', 'cualquiera'),
+    ).rejects.toThrow('Credenciales inválidas');
     const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
 
     // Un bcrypt con factor de costo 10 tarda decenas de milisegundos; la ruta
