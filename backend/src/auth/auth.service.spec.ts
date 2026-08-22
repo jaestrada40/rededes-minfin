@@ -27,7 +27,12 @@ describe('AuthService', () => {
   const auditMock = { log: jest.fn() };
   const settingsMock = { get: jest.fn().mockResolvedValue({ mfaRequired: true }) };
   const prismaMock = {
-    mfaSettings: { create: jest.fn().mockResolvedValue({}), update: jest.fn() },
+    mfaSettings: {
+      create: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({}),
+      upsert: jest.fn().mockResolvedValue({}),
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
     user: {
       update: jest.fn().mockResolvedValue({}),
       findUniqueOrThrow: jest.fn().mockResolvedValue(userNoMfa),
@@ -71,16 +76,45 @@ describe('AuthService', () => {
   });
 
   it('issues tokens after completing MFA setup with a valid TOTP code', async () => {
+    // El secreto pendiente vive en la base, no en el token: se captura lo que
+    // mfaSetup guardó y se descifra igual que lo hace el servicio.
+    let storedSecretEncrypted = '';
+    prismaMock.mfaSettings.upsert = jest.fn().mockImplementation(({ create }: any) => {
+      storedSecretEncrypted = create.secretEncrypted;
+      return Promise.resolve({});
+    });
+    prismaMock.mfaSettings.findUnique = jest
+      .fn()
+      .mockImplementation(() => Promise.resolve(storedSecretEncrypted ? { secretEncrypted: storedSecretEncrypted, verifiedAt: null } : null));
+
     const { setupToken } = await service.login('a@minfin.gob.gt', 'Password123!');
     const { verifyToken, qrDataUrl } = await service.mfaSetup(setupToken!);
     expect(qrDataUrl).toContain('data:image');
 
-    const secret = (service as any).decodeSetupSecret(verifyToken);
-    const code = authenticator.generate(secret);
+    const code = authenticator.generate((service as any).decryptSecret(storedSecretEncrypted));
 
     const tokens = await service.mfaSetupVerify(verifyToken, code);
     expect(tokens.accessToken).toBeDefined();
     expect(tokens.refreshToken).toBeDefined();
+  });
+
+  it('never puts the TOTP secret in the setup token payload', async () => {
+    let storedSecretEncrypted = '';
+    prismaMock.mfaSettings.upsert = jest.fn().mockImplementation(({ create }: any) => {
+      storedSecretEncrypted = create.secretEncrypted;
+      return Promise.resolve({});
+    });
+    prismaMock.mfaSettings.findUnique = jest.fn().mockResolvedValue(null);
+
+    const login = (await service.login('a@minfin.gob.gt', 'Password123!')) as { setupToken: string };
+    const { verifyToken } = await service.mfaSetup(login.setupToken);
+
+    // Un JWT va firmado pero NO cifrado: quien intercepte el token puede leer
+    // su payload en base64. El secreto tiene que quedar solo del lado del
+    // servidor, cifrado.
+    const payload = JSON.parse(Buffer.from(verifyToken.split('.')[1], 'base64').toString());
+    expect(payload.secret).toBeUndefined();
+    expect(JSON.stringify(payload)).not.toContain(storedSecretEncrypted);
   });
 
   it('locks the account after repeated failed logins instead of allowing unlimited guesses', async () => {
@@ -99,9 +133,10 @@ describe('AuthService', () => {
   });
 
   it('locks MFA step-up verification after repeated invalid codes', async () => {
-    prismaMock.mfaSettings.findUnique = jest
-      .fn()
-      .mockResolvedValue({ secretEncrypted: (service as any).encryptSecret(authenticator.generateSecret()) });
+    prismaMock.mfaSettings.findUnique = jest.fn().mockResolvedValue({
+      secretEncrypted: (service as any).encryptSecret(authenticator.generateSecret()),
+      verifiedAt: new Date(),
+    });
 
     for (let i = 0; i < 5; i++) {
       expect(await service.verifyMfaCode('u-stepup', '000000')).toBe(false);

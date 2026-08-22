@@ -4,11 +4,13 @@ import request from 'supertest';
 import { authenticator } from 'otplib';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { AuthService } from '../src/auth/auth.service';
 import * as bcrypt from 'bcrypt';
 
 describe('Auth flow (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let auth: AuthService;
   const email = 'e2e-admin@minfin.gob.gt';
   const password = 'Password123!';
 
@@ -18,6 +20,7 @@ describe('Auth flow (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
     prisma = moduleRef.get(PrismaService);
+    auth = moduleRef.get(AuthService);
 
     const role = await prisma.role.upsert({
       where: { name: 'admin' },
@@ -51,8 +54,14 @@ describe('Auth flow (e2e)', () => {
       .expect(201);
     expect(setupRes.body.qrDataUrl).toContain('data:image');
 
-    const secret = Buffer.from(setupRes.body.verifyToken.split('.')[1], 'base64').toString();
-    const decodedSecret = JSON.parse(secret).secret;
+    // El secreto TOTP ya no viaja en el token: queda cifrado del lado del
+    // servidor. Un cliente legítimo lo obtiene escaneando el QR; aquí se lee
+    // del registro pendiente y se descifra con el mismo servicio.
+    const payload = JSON.parse(Buffer.from(setupRes.body.verifyToken.split('.')[1], 'base64').toString());
+    expect(payload.secret).toBeUndefined();
+
+    const pending = await prisma.mfaSettings.findUniqueOrThrow({ where: { userId: payload.userId } });
+    const decodedSecret = (auth as any).decryptSecret(pending.secretEncrypted);
     const code = authenticator.generate(decodedSecret);
 
     const verifyRes = await request(app.getHttpServer())
