@@ -106,8 +106,8 @@ describe('AuthService', () => {
     });
     prismaMock.mfaSettings.findUnique = jest.fn().mockResolvedValue(null);
 
-    const login = (await service.login('a@minfin.gob.gt', 'Password123!')) as { setupToken: string };
-    const { verifyToken } = await service.mfaSetup(login.setupToken);
+    const { setupToken } = await service.login('a@minfin.gob.gt', 'Password123!');
+    const { verifyToken } = await service.mfaSetup(setupToken!);
 
     // Un JWT va firmado pero NO cifrado: quien intercepte el token puede leer
     // su payload en base64. El secreto tiene que quedar solo del lado del

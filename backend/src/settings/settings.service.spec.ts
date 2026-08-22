@@ -31,7 +31,10 @@ describe('SettingsService', () => {
   });
 
   it('updates the settings row and audits the change', async () => {
-    const settings = await service.update({ maintenanceMode: true }, { email: 'a@minfin.gob.gt' });
+    const settings = await service.update(
+      { maintenanceMode: true },
+      { id: 'u1', email: 'a@minfin.gob.gt', role: 'super_admin' },
+    );
     expect(settings.maintenanceMode).toBe(true);
     expect(auditMock.log).toHaveBeenCalledWith(expect.objectContaining({ module: 'Configuración' }));
   });
