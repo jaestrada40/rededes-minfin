@@ -11,17 +11,17 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
 
-  @Roles('admin', 'editor', 'auditor', 'viewer')
+  @Roles('super_admin', 'admin', 'editor')
   @Get()
   async get(@Req() req: Request & { user: { id: string; email: string; role: string } }) {
     const settings = await this.settings.get();
-    if (req.user.role !== 'admin') {
+    if (req.user.role !== 'super_admin') {
       return { ...settings, webhookSecret: undefined, apiKeys: undefined };
     }
     return settings;
   }
 
-  @Roles('admin')
+  @Roles('super_admin')
   @Patch()
   update(@Body() dto: UpdateSettingsDto, @Req() req: Request & { user: { id: string; email: string; role: string } }) {
     return this.settings.update(dto, req.user);

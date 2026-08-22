@@ -7,7 +7,8 @@ describe('PortalsService', () => {
   let service: PortalsService;
   const prismaMock = {
     wordPressPortal: {
-      findMany: jest.fn().mockResolvedValue([{ id: 'wp1' }, { id: 'wp2' }]),
+      findMany: jest.fn().mockResolvedValue([{ id: 'wp1', domain: 'portal1.example.gt' }, { id: 'wp2', domain: 'portal2.example.gt' }]),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'wp1', domain: 'portal1.example.gt' }),
       updateMany: jest.fn().mockResolvedValue({}),
       update: jest.fn().mockResolvedValue({ id: 'wp1', connectionStatus: 'connected' }),
     },
@@ -19,6 +20,14 @@ describe('PortalsService', () => {
   };
   const auditMock = { log: jest.fn() };
   const actor = { id: 'u1', email: 'a@minfin.gob.gt', role: 'admin' };
+
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -55,7 +64,7 @@ describe('PortalsService', () => {
 
   it('marks all portals connected after syncAll', async () => {
     await service.syncAll(actor);
-    expect(prismaMock.wordPressPortal.updateMany).toHaveBeenCalledWith(
+    expect(prismaMock.wordPressPortal.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ connectionStatus: 'connected' }) }),
     );
   });

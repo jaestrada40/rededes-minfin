@@ -99,23 +99,24 @@ export function addPostToFeed(
     customContent?: string;
     customMediaUrl?: string;
     customAuthorName?: string;
+    mfaCode?: string;
   },
 ): Promise<{ success: boolean; message: string; post?: BackendSocialPost }> {
   return apiPost(`/feeds/${feedId}/posts`, input);
 }
 
-export function removePostFromFeed(feedId: string, postId: string): Promise<void> {
-  return apiDelete<void>(`/feeds/${feedId}/posts/${postId}`);
+export function removePostFromFeed(feedId: string, postId: string, mfaCode?: string): Promise<void> {
+  return apiDelete<void>(`/feeds/${feedId}/posts/${postId}`, { mfaCode });
 }
 
 export function reorderFeedPosts(feedId: string, orderedPostIds: string[]): Promise<void> {
   return apiPatch<void>(`/feeds/${feedId}/posts/reorder`, { orderedPostIds });
 }
 
-export function updatePostContent(postId: string, content: string): Promise<BackendSocialPost> {
-  return apiPatch<BackendSocialPost>(`/posts/${postId}`, { content });
+export function updatePostContent(postId: string, content: string, mfaCode?: string): Promise<BackendSocialPost> {
+  return apiPatch<BackendSocialPost>(`/posts/${postId}`, { content, mfaCode });
 }
 
-export function deletePostPermanently(postId: string): Promise<void> {
-  return apiDelete<void>(`/posts/${postId}`);
+export function deletePostPermanently(postId: string, mfaCode?: string): Promise<void> {
+  return apiDelete<void>(`/posts/${postId}`, { mfaCode });
 }

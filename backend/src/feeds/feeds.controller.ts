@@ -9,6 +9,7 @@ import { UpdateFeedDto } from './dto/update-feed.dto';
 import { AddPostDto } from './dto/add-post.dto';
 import { ReorderPostsDto } from './dto/reorder-posts.dto';
 import { UpdatePostContentDto } from './dto/update-post-content.dto';
+import { MfaCodeDto } from './dto/mfa-code.dto';
 
 type AuthedRequest = Request & { user: { id: string; email: string; role: string } };
 
@@ -17,69 +18,78 @@ type AuthedRequest = Request & { user: { id: string; email: string; role: string
 export class FeedsController {
   constructor(private readonly feeds: FeedsService) {}
 
-  @Roles('admin', 'editor', 'auditor', 'viewer')
+  @Roles('super_admin', 'admin', 'editor')
   @Get('feeds')
   findAll() {
     return this.feeds.findAll();
   }
 
-  @Roles('admin', 'editor', 'auditor', 'viewer')
+  @Roles('super_admin', 'admin', 'editor')
   @Get('feeds/:id')
   findOne(@Param('id') id: string) {
     return this.feeds.findOne(id);
   }
 
-  @Roles('admin', 'editor')
+  @Roles('super_admin', 'admin', 'editor')
   @Post('feeds')
   create(@Body() dto: CreateFeedDto, @Req() req: AuthedRequest) {
     return this.feeds.create(dto, req.user);
   }
 
-  @Roles('admin', 'editor')
+  @Roles('super_admin', 'admin', 'editor')
   @Patch('feeds/:id')
   update(@Param('id') id: string, @Body() dto: UpdateFeedDto, @Req() req: AuthedRequest) {
     return this.feeds.update(id, dto, req.user);
   }
 
-  @Roles('admin', 'editor')
+  @Roles('super_admin', 'admin', 'editor')
   @Delete('feeds/:id')
   remove(@Param('id') id: string, @Req() req: AuthedRequest) {
     return this.feeds.remove(id, req.user);
   }
 
-  @Roles('admin', 'editor')
+  @Roles('super_admin', 'admin', 'editor')
   @Post('feeds/:id/duplicate')
   duplicate(@Param('id') id: string, @Req() req: AuthedRequest) {
     return this.feeds.duplicate(id, req.user);
   }
 
-  @Roles('admin', 'editor')
+  @Roles('super_admin', 'admin', 'editor')
   @Post('feeds/:id/posts')
   addPost(@Param('id') id: string, @Body() dto: AddPostDto, @Req() req: AuthedRequest) {
     return this.feeds.addPost(id, dto, req.user);
   }
 
-  @Roles('admin', 'editor')
+  @Roles('super_admin', 'admin', 'editor')
   @Delete('feeds/:id/posts/:postId')
-  removePost(@Param('id') id: string, @Param('postId') postId: string, @Req() req: AuthedRequest) {
-    return this.feeds.removePost(id, postId, req.user);
+  removePost(
+    @Param('id') id: string,
+    @Param('postId') postId: string,
+    @Body() dto: MfaCodeDto,
+    @Req() req: AuthedRequest,
+  ) {
+    return this.feeds.removePost(id, postId, req.user, dto.mfaCode);
   }
 
-  @Roles('admin', 'editor')
+  @Roles('super_admin', 'admin', 'editor')
   @Patch('feeds/:id/posts/reorder')
   reorder(@Param('id') id: string, @Body() dto: ReorderPostsDto, @Req() req: AuthedRequest) {
     return this.feeds.reorderPosts(id, dto.orderedPostIds, req.user);
   }
 
-  @Roles('admin', 'editor')
+  @Roles('super_admin', 'admin', 'editor')
   @Patch('posts/:id')
   updatePostContent(@Param('id') id: string, @Body() dto: UpdatePostContentDto, @Req() req: AuthedRequest) {
-    return this.feeds.updatePostContent(id, dto.content, req.user);
+    return this.feeds.updatePostContent(id, dto.content, req.user, dto.mfaCode);
   }
 
-  @Roles('admin')
+  @Roles('super_admin', 'admin')
   @Delete('posts/:id')
-  deletePostPermanently(@Param('id') id: string, @Req() req: AuthedRequest) {
-    return this.feeds.deletePostPermanently(id, req.user);
+  deletePostPermanently(
+    @Param('id') id: string,
+    @Body() dto: MfaCodeDto,
+    @Req() req: AuthedRequest,
+  ) {
+    return this.feeds.deletePostPermanently(id, req.user, dto.mfaCode);
   }
 }

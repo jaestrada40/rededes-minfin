@@ -1,33 +1,22 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ShieldCheck, Lock, Mail, KeyRound, AlertCircle, ArrowRight, CheckCircle2, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { MfaCountdown } from './MfaCountdown';
 
 type Step = 'login' | 'mfa-setup' | 'mfa-verify';
 
-// Escudo institucional de respaldo (badge "Acceso seguro" y fallback si no
-// hay logo subido en Configuración).
-const ShieldIcon: React.FC<{ small?: boolean; className?: string }> = ({ small = false, className = '' }) => (
-  <svg
-    viewBox="0 0 64 72"
-    fill="none"
-    className={`${small ? 'w-[30px] h-[34px]' : 'w-[150px] h-[168px]'} shrink-0 ${className}`}
-    aria-hidden="true"
-  >
-    <path
-      d="M32 3 57 12v20c0 17.2-10.5 29.7-25 37C17.5 61.7 7 49.2 7 32V12L32 3Z"
-      fill="rgba(7,28,64,0.2)"
-      stroke="#c99a43"
-      strokeWidth="2.4"
-    />
-    <text x="32" y="41" textAnchor="middle" fill="#fff" fontSize="22" fontWeight="800">MF</text>
-  </svg>
+// Mientras se resuelve la conexión con el backend (o si la base de datos no
+// responde), se muestra este placeholder en vez de dejar el espacio del logo
+// institucional en blanco o con un ícono genérico.
+const LogoSkeleton: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`h-[150px] w-[150px] rounded-2xl bg-white/10 animate-pulse ${className}`} aria-hidden="true" />
 );
 
 // Ilustración decorativa del edificio institucional del MINFIN (Centro Cívico),
 // de fondo en el panel de marca — se ve tanto en login como en los pasos de MFA
 // porque comparten el mismo panel.
 export const AuthScreen: React.FC = () => {
-  const { login, mfaSetupBegin, mfaSetupComplete, mfaVerifyCode, authError, settings } = useApp();
+  const { login, mfaSetupBegin, mfaSetupComplete, mfaVerifyCode, authError, settings, authLoading } = useApp();
 
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -89,15 +78,15 @@ export const AuthScreen: React.FC = () => {
       >
         <div className="absolute inset-0 bg-[#0c2a5a]/35 pointer-events-none" />
         <div className="relative z-[1] w-full max-w-[500px] text-center lg:text-left">
-          {settings.logoUrl ? (
+          {authLoading ? (
+            <LogoSkeleton className="mx-auto lg:mx-0" />
+          ) : settings.logoUrl ? (
             <img
               src={settings.logoUrl}
               alt="Logo institucional"
               className="mx-auto lg:mx-0 h-[150px] w-auto max-w-full object-contain drop-shadow-[0_4px_18px_rgba(0,0,0,0.35)]"
             />
-          ) : (
-            <ShieldIcon className="mx-auto lg:mx-0" />
-          )}
+          ) : null}
           <p className="mt-6 sm:mt-10 mb-3 sm:mb-4 font-bold text-xs sm:text-[0.84rem] tracking-[0.15em] uppercase text-white">
             Ministerio de Finanzas Públicas
           </p>
@@ -115,7 +104,6 @@ export const AuthScreen: React.FC = () => {
       <section className="flex flex-col min-w-0 bg-white">
         <div className="flex flex-1 w-[calc(100%-2.5rem)] sm:w-[min(100%-3rem,510px)] mx-auto py-10 sm:py-16 lg:py-[clamp(48px,10vh,120px)] flex-col justify-center">
           <div className="flex items-center gap-2.5 w-max max-w-full px-3.5 py-2.5 border border-[#d9e0eb] rounded-[9px] text-[#42547a] text-[0.84rem] font-semibold">
-            <ShieldIcon small />
             <span>Acceso seguro · Red Gubernamental MINFIN</span>
           </div>
 
@@ -214,7 +202,10 @@ export const AuthScreen: React.FC = () => {
               )}
 
               <div>
-                <label className="block font-bold text-[0.92rem] mb-1.5">Código de 6 dígitos</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-bold text-[0.92rem]">Código de 6 dígitos</label>
+                  <MfaCountdown />
+                </div>
                 <div className="relative flex items-center h-[58px] sm:h-[62px] border border-[#d9e0eb] rounded-[9px] bg-white transition-colors focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10">
                   <KeyRound className="w-5 h-5 ml-4 mr-3 text-[#61769e] shrink-0" strokeWidth={1.7} />
                   <input
@@ -262,7 +253,10 @@ export const AuthScreen: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold text-[0.92rem] mb-1.5">Código de 6 dígitos</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-bold text-[0.92rem]">Código de 6 dígitos</label>
+                  <MfaCountdown />
+                </div>
                 <div className="relative flex items-center h-[58px] sm:h-[62px] border border-[#d9e0eb] rounded-[9px] bg-white transition-colors focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10">
                   <KeyRound className="w-5 h-5 ml-4 mr-3 text-[#61769e] shrink-0" strokeWidth={1.7} />
                   <input
@@ -317,7 +311,6 @@ export const AuthScreen: React.FC = () => {
 
         <footer className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-8 px-6 sm:px-[clamp(24px,5vw,76px)] py-6 border-t border-[#e5eaf1] bg-[#f7f9fc] text-[#506180] text-xs leading-relaxed">
           <div className="flex items-center gap-3 whitespace-nowrap">
-            <ShieldIcon small />
             <span>
               <strong className="text-[#0c2a5a]">Ministerio de Finanzas Públicas</strong><br />Gobierno de Guatemala
             </span>

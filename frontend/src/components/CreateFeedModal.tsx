@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { SocialIcon, WordPressIcon, networkLabel } from './OfficialLogos';
 import { X, Plus, Save, Layers, Globe, CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { SocialNetworkType, FeedStatus, Feed } from '../types';
+import { MfaCountdown } from './MfaCountdown';
 
 interface CreateFeedModalProps {
   isOpen: boolean;
@@ -141,8 +142,9 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
           layoutDefault,
           maxItemsDefault,
           showMetrics,
-          showMedia
-        }, mfaCode.trim() || undefined);
+          showMedia,
+          mfaCode: mfaCode.trim() || undefined
+        });
       }
       onClose();
     } catch (err) {
@@ -315,10 +317,13 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
 
           {!editFeed && user.mfaEnabled && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1.5">
-              <label className="flex items-center gap-1.5 font-bold text-amber-800">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Confirmación MFA requerida
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 font-bold text-amber-800">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Confirmación MFA requerida
+                </label>
+                <MfaCountdown />
+              </div>
               <input
                 type="text"
                 inputMode="numeric"

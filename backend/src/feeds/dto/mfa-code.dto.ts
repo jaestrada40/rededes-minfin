@@ -1,6 +1,5 @@
 import { IsOptional, IsString } from 'class-validator';
 
-export class UpdatePostContentDto {
-  @IsString() content: string;
+export class MfaCodeDto {
   @IsOptional() @IsString() mfaCode?: string;
 }

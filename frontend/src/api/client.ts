@@ -113,6 +113,6 @@ export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined });
 }
 
-export function apiDelete<T>(path: string): Promise<T> {
-  return apiFetch<T>(path, { method: 'DELETE' });
+export function apiDelete<T>(path: string, body?: unknown): Promise<T> {
+  return apiFetch<T>(path, { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined });
 }

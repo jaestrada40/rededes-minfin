@@ -16,8 +16,13 @@ interface SidebarProps {
   onCloseMobile?: () => void;
 }
 
-const MfLogo: React.FC<{ small?: boolean; large?: boolean; logoUrl?: string }> = ({ small = false, large = false, logoUrl }) => {
+const MfLogo: React.FC<{ small?: boolean; large?: boolean; logoUrl?: string; loaded: boolean }> = ({ small = false, large = false, logoUrl, loaded }) => {
   const boxClass = small ? 'w-10 h-10' : large ? 'w-full h-[110px]' : 'w-16 h-16';
+  if (!loaded) {
+    // Aún no responde /settings (p. ej. la base de datos está caída) —
+    // skeleton en vez de dejar un ícono genérico mientras tanto.
+    return <div className={`${boxClass} rounded-[10px] bg-white/10 animate-pulse shrink-0`} />;
+  }
   if (logoUrl) {
     return (
       <img
@@ -27,17 +32,11 @@ const MfLogo: React.FC<{ small?: boolean; large?: boolean; logoUrl?: string }> =
       />
     );
   }
-  return (
-    <div
-      className={`grid place-items-center shrink-0 ${boxClass} ${small ? 'text-base' : 'text-2xl'} border-2 border-[#c99a43] rounded-[10px] text-white font-extrabold tracking-[-0.07em] bg-[#04183a]/35`}
-    >
-      MF
-    </div>
-  );
+  return null;
 };
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpenMobile, onCloseMobile }) => {
-  const { activeTab, setActiveTab, feeds, portals, settings } = useApp();
+  const { activeTab, setActiveTab, feeds, portals, settings, settingsLoaded } = useApp();
 
   const activeFeedsCount = feeds.filter(f => f.status === 'active').length;
   const connectedPortalsCount = portals.filter(p => p.connectionStatus === 'connected').length;
@@ -68,18 +67,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpenMobile, onCloseMobile })
         className={`fixed lg:sticky top-0 left-0 h-screen w-80 flex flex-col text-[#f4f8ff] bg-[#0c2a5a] shadow-[2px_0_16px_rgba(3,18,45,0.12)] z-50 transition-transform duration-200 ease-in-out overflow-y-auto ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
+        style={{
+          backgroundImage: "url('/minfin-sidebar-background.png')",
+          backgroundSize: 'cover',
+          backgroundPosition: 'top center',
+          backgroundRepeat: 'no-repeat'
+        }}
       >
-        {/* Header */}
-        <header
-          className="relative flex items-center gap-4 min-h-[164px] px-6 py-7 border-b border-[#c7daf8]/20 shrink-0"
-          style={{ background: 'linear-gradient(135deg, #103a73, #0c2a5a 65%)' }}
-        >
-          <div
-            className="absolute right-0 top-0 w-[48%] h-full opacity-10 pointer-events-none"
-            style={{ background: 'repeating-linear-gradient(135deg, transparent 0 27px, #d9e9ff 28px 29px, transparent 30px 58px)' }}
-          />
+        {/* Header — sin fondo propio para que se vea la ilustración del edificio institucional detrás */}
+        <header className="relative flex items-center gap-4 min-h-[164px] px-6 py-7 border-b border-[#c7daf8]/20 shrink-0">
           <div className="relative z-10 flex items-center gap-4">
-            <MfLogo logoUrl={settings.logoUrl} large />
+            <MfLogo logoUrl={settings.logoUrl} loaded={settingsLoaded} large />
           </div>
         </header>
 

@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
-const ROLE_NAMES = ['admin', 'editor', 'auditor', 'viewer'] as const;
+const ROLE_NAMES = ['super_admin', 'admin', 'editor'] as const;
 
 const PORTALS = [
   { name: 'Portal Principal MINFIN', domain: 'minfin.gob.gt', category: 'Institucional', description: 'Portal web matriz y oficial del Ministerio de Finanzas Públicas de Guatemala.' },
@@ -52,7 +52,10 @@ async function main() {
     });
   }
 
-  const adminRole = await prisma.role.findUniqueOrThrow({ where: { name: 'admin' } });
+  // El usuario sembrado es la cuenta de DTI, dueña técnica del sistema —
+  // recibe el rol de mayor privilegio (super_admin), no "admin" (ese queda
+  // para la jefatura de Comunicación Social, creada luego desde la UI).
+  const superAdminRole = await prisma.role.findUniqueOrThrow({ where: { name: 'super_admin' } });
   const email = process.env.SEED_ADMIN_EMAIL ?? 'admin@minfin.gob.gt';
   const password = process.env.SEED_ADMIN_PASSWORD ?? 'ChangeMe123!';
   const passwordHash = await bcrypt.hash(password, 10);
@@ -64,7 +67,7 @@ async function main() {
       email,
       passwordHash,
       name: 'Administrador DTI',
-      roleId: adminRole.id,
+      roleId: superAdminRole.id,
       mfaEnabled: false,
     },
   });

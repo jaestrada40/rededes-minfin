@@ -238,26 +238,41 @@ export class FeedsService {
     private readonly auth: AuthService,
   ) {}
 
+  // Re-verificación de MFA ("step-up") para acciones sensibles ya
+  // autenticadas: exige el código TOTP actual del usuario cuando tiene MFA
+  // configurado, y audita el intento fallido antes de rechazarlo.
+  private async requireStepUpMfa(
+    actor: { id: string; email: string; role: string },
+    mfaCode: string | undefined,
+    action: string,
+    module: string,
+    entity?: string,
+    entityId?: string,
+  ): Promise<void> {
+    const actorUser = await this.prisma.user.findUnique({ where: { id: actor.id }, select: { mfaEnabled: true } });
+    if (!actorUser?.mfaEnabled) return;
+
+    const validCode = await this.auth.verifyMfaCode(actor.id, mfaCode ?? '');
+    if (!validCode) {
+      await this.audit.log({
+        userId: actor.id,
+        userEmail: actor.email,
+        userRole: actor.role,
+        action,
+        module,
+        entity,
+        entityId,
+        result: 'Fallido',
+      });
+      throw new UnauthorizedException('Código MFA inválido o faltante.');
+    }
+  }
+
   async create(dto: CreateFeedDto, actor: { id: string; email: string; role: string }): Promise<Feed> {
     // Crear un feed es una acción sensible (define qué se publica en los
     // portales institucionales), así que si el usuario tiene MFA configurado
     // se exige re-confirmar con su código TOTP actual antes de proceder.
-    const actorUser = await this.prisma.user.findUnique({ where: { id: actor.id }, select: { mfaEnabled: true } });
-    if (actorUser?.mfaEnabled) {
-      const validCode = await this.auth.verifyMfaCode(actor.id, dto.mfaCode ?? '');
-      if (!validCode) {
-        await this.audit.log({
-          userId: actor.id,
-          userEmail: actor.email,
-          userRole: actor.role,
-          action: 'Intento fallido de creación de feed (código MFA inválido)',
-          module: 'Feeds',
-          entity: 'Feed',
-          result: 'Fallido',
-        });
-        throw new UnauthorizedException('Código MFA inválido o faltante.');
-      }
-    }
+    await this.requireStepUpMfa(actor, dto.mfaCode, 'Intento fallido de creación de feed (código MFA inválido)', 'Feeds', 'Feed');
 
     const slug = dto.slug || slugify(dto.name) || `feed-${Date.now()}`;
     const feed = await this.prisma.feed.create({
@@ -450,9 +465,19 @@ export class FeedsService {
       customContent?: string;
       customMediaUrl?: string;
       customAuthorName?: string;
+      mfaCode?: string;
     },
     actor: { id: string; email: string; role: string },
   ) {
+    await this.requireStepUpMfa(
+      actor,
+      input.mfaCode,
+      'Intento fallido de agregar publicación (código MFA inválido)',
+      'Publicaciones',
+      'Feed',
+      feedId,
+    );
+
     const feed = await this.prisma.feed.findUniqueOrThrow({ where: { id: feedId } });
 
     if (feed.network !== 'mixed' && feed.network !== input.network) {
@@ -530,7 +555,21 @@ export class FeedsService {
     return { success: true, message: 'Publicación agregada con éxito.', post };
   }
 
-  async removePost(feedId: string, postId: string, actor: { id: string; email: string; role: string }): Promise<void> {
+  async removePost(
+    feedId: string,
+    postId: string,
+    actor: { id: string; email: string; role: string },
+    mfaCode?: string,
+  ): Promise<void> {
+    await this.requireStepUpMfa(
+      actor,
+      mfaCode,
+      'Intento fallido de eliminar publicación del feed (código MFA inválido)',
+      'Publicaciones',
+      'Feed',
+      feedId,
+    );
+
     await this.prisma.feedPost.delete({ where: { feedId_postId: { feedId, postId } } });
 
     await this.audit.log({
@@ -572,7 +611,21 @@ export class FeedsService {
     });
   }
 
-  async updatePostContent(postId: string, content: string, actor: { id: string; email: string; role: string }) {
+  async updatePostContent(
+    postId: string,
+    content: string,
+    actor: { id: string; email: string; role: string },
+    mfaCode?: string,
+  ) {
+    await this.requireStepUpMfa(
+      actor,
+      mfaCode,
+      'Intento fallido de editar publicación (código MFA inválido)',
+      'Publicaciones',
+      'SocialPost',
+      postId,
+    );
+
     const post = await this.prisma.socialPost.update({ where: { id: postId }, data: { content } });
 
     await this.audit.log({
@@ -594,7 +647,20 @@ export class FeedsService {
   // cualquier otro feed. Útil cuando el registro quedó con contenido de
   // muestra desactualizado: al volver a agregar la misma URL, el sistema
   // busca de nuevo el contenido real en lugar de reutilizar el existente.
-  async deletePostPermanently(postId: string, actor: { id: string; email: string; role: string }): Promise<void> {
+  async deletePostPermanently(
+    postId: string,
+    actor: { id: string; email: string; role: string },
+    mfaCode?: string,
+  ): Promise<void> {
+    await this.requireStepUpMfa(
+      actor,
+      mfaCode,
+      'Intento fallido de eliminar publicación permanentemente (código MFA inválido)',
+      'Publicaciones',
+      'SocialPost',
+      postId,
+    );
+
     const post = await this.prisma.socialPost.delete({ where: { id: postId } });
 
     await this.audit.log({

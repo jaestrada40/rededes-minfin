@@ -44,7 +44,7 @@ export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenA
   const [portalFilter, setPortalFilter] = useState<string>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const canEdit = user.role === 'admin' || user.role === 'editor';
+  const canEdit = user.role === 'super_admin' || user.role === 'admin' || user.role === 'editor';
 
   const formatUpdatedAt = (value: string) => {
     const date = new Date(value);
