@@ -36,12 +36,12 @@ class Minfin_Social_Feed {
             wp_send_json_error(['message' => 'No autorizado.'], 403);
         }
 
-        $api_url = isset($_POST['api_url']) ? untrailingslashit(esc_url_raw(wp_unslash($_POST['api_url']))) : '';
+        $api_url = isset($_POST['api_url']) ? $this->sanitize_api_url(wp_unslash($_POST['api_url'])) : '';
         if (empty($api_url)) {
-            wp_send_json_error(['message' => 'Ingrese una URL antes de probar la conexión.']);
+            wp_send_json_error(['message' => 'Ingrese una URL HTTPS válida antes de probar la conexión.']);
         }
 
-        $response = wp_remote_get($api_url . '/public/branding', ['timeout' => 8]);
+        $response = $this->api_get($api_url . '/public/branding');
 
         if (is_wp_error($response)) {
             wp_send_json_error(['message' => $response->get_error_message()]);
@@ -86,13 +86,52 @@ class Minfin_Social_Feed {
 
     public function sanitize_settings($input) {
         return [
-            'api_url' => isset($input['api_url']) ? untrailingslashit(esc_url_raw($input['api_url'])) : '',
+            'api_url' => isset($input['api_url']) ? $this->sanitize_api_url($input['api_url']) : '',
             'cache_seconds' => isset($input['cache_seconds']) ? max(0, intval($input['cache_seconds'])) : 10,
             'floating_enabled' => !empty($input['floating_enabled']) ? '1' : '',
             'floating_feed' => isset($input['floating_feed']) ? $this->sanitize_slug_list($input['floating_feed']) : '',
             'floating_position' => (isset($input['floating_position']) && $input['floating_position'] === 'bottom-left')
                 ? 'bottom-left' : 'bottom-right',
         ];
+    }
+
+    /** Solo HTTPS público; se puede habilitar una URL local explícitamente para desarrollo. */
+    private function sanitize_api_url($value) {
+        $url = untrailingslashit(esc_url_raw((string) $value));
+        $parts = wp_parse_url($url);
+        $host = $parts['host'] ?? '';
+        $is_local = in_array($host, ['localhost', '127.0.0.1', 'host.docker.internal'], true);
+        $allow_local = (bool) apply_filters(
+            'minfin_social_feed_allow_local_api',
+            defined('WP_DEBUG') && WP_DEBUG
+        );
+        if (!$url || (!$allow_local || !$is_local) && !wp_http_validate_url($url)) {
+            return '';
+        }
+        if (($parts['scheme'] ?? '') !== 'https' && !($allow_local && $is_local && ($parts['scheme'] ?? '') === 'http')) {
+            return '';
+        }
+        return $url;
+    }
+
+    private function api_get($url) {
+        $args = [
+            'timeout' => 8,
+            'redirection' => 0,
+            'reject_unsafe_urls' => true,
+        ];
+        $parts = wp_parse_url($url);
+        $is_local = in_array($parts['host'] ?? '', ['localhost', '127.0.0.1', 'host.docker.internal'], true);
+        $allow_local = (bool) apply_filters(
+            'minfin_social_feed_allow_local_api',
+            defined('WP_DEBUG') && WP_DEBUG
+        );
+        // Solo en desarrollo explícito se permite el puente Docker→host.
+        if ($allow_local && $is_local) {
+            unset($args['reject_unsafe_urls']);
+            return wp_remote_get($url, $args);
+        }
+        return wp_safe_remote_get($url, $args);
     }
 
     private function sanitize_slug_list($raw) {
@@ -125,10 +164,10 @@ class Minfin_Social_Feed {
                         <td>
                             <input type="url" id="minfin_api_url" name="<?php echo esc_attr(MINFIN_SOCIAL_FEED_OPTION); ?>[api_url]"
                                 value="<?php echo esc_attr($settings['api_url']); ?>" class="regular-text"
-                                placeholder="http://localhost:4000" required />
+                                placeholder="https://api.ejemplo.gob.gt" required />
                             <button type="button" id="minfin-test-connection" class="button">Probar Conexión</button>
                             <span id="minfin-test-connection-result" style="margin-left:8px;"></span>
-                            <p class="description">Ejemplo: http://localhost:4000 (sin barra final). No requiere autenticación — usa el endpoint público de solo lectura.</p>
+                            <p class="description">Use una URL HTTPS pública sin barra final. Para desarrollo local, habilite explícitamente el filtro <code>minfin_social_feed_allow_local_api</code>.</p>
                         </td>
                     </tr>
                     <tr>
@@ -392,11 +431,9 @@ class Minfin_Social_Feed {
             <script>
             window.minfinLoadTwitterWidgets = function () {
                 if (window.twttr && window.twttr.widgets) { window.twttr.widgets.load(); return; }
-                if (document.getElementById('minfin-twitter-wjs')) { return; }
+                if (document.getElementById('minfin-twitter-wjs')) return;
                 var s = document.createElement('script');
-                s.id = 'minfin-twitter-wjs';
-                s.async = true;
-                s.src = 'https://platform.x.com/widgets.js';
+                s.id = 'minfin-twitter-wjs'; s.async = true; s.src = 'https://platform.x.com/widgets.js';
                 document.body.appendChild(s);
             };
             </script>
@@ -436,9 +473,7 @@ class Minfin_Social_Feed {
                 panel.hidden = false;
                 requestAnimationFrame(function () { panel.classList.add('is-open'); });
                 openNetwork = network;
-                if (network === 'x' && window.minfinLoadTwitterWidgets) {
-                    window.minfinLoadTwitterWidgets();
-                }
+                if (network === 'x' && window.minfinLoadTwitterWidgets) window.minfinLoadTwitterWidgets();
                 if (network === 'instagram' && window.minfinLoadInstagramEmbeds) {
                     window.minfinLoadInstagramEmbeds();
                 }
@@ -481,10 +516,7 @@ class Minfin_Social_Feed {
             return $cached;
         }
 
-        $response = wp_remote_get(
-            $settings['api_url'] . '/public/feeds/' . rawurlencode($slug),
-            ['timeout' => 8]
-        );
+        $response = $this->api_get($settings['api_url'] . '/public/feeds/' . rawurlencode($slug));
 
         if (is_wp_error($response)) {
             return $response;
@@ -504,9 +536,12 @@ class Minfin_Social_Feed {
         }
 
         // Aplana posts[].post -> posts[] para simplificar el render.
-        $body['posts'] = array_map(function ($link) {
-            return $link['post'];
-        }, $body['posts']);
+        if (!isset($body['posts']) || !is_array($body['posts'])) {
+            return new WP_Error('minfin_api_error', 'Respuesta de feed inválida.');
+        }
+        $body['posts'] = array_values(array_filter(array_map(function ($link) {
+            return is_array($link) && isset($link['post']) && is_array($link['post']) ? $link['post'] : null;
+        }, $body['posts'])));
 
         set_transient($cache_key, $body, max(0, intval($settings['cache_seconds'])));
 
@@ -554,19 +589,14 @@ class Minfin_Social_Feed {
         return ob_get_clean();
     }
 
-    // X ya no sirve datos completos (imagen, avatar) a scrapers/APIs no
-    // oficiales de forma confiable, así que en vez de reconstruir una tarjeta
-    // propia usamos el embed oficial de X (blockquote + widgets.js) — el
-    // mismo mecanismo que ofrece "Insertar publicación" en x.com. Requiere
-    // que el post tenga una URL de x.com/twitter.com válida.
+    // El embed oficial conserva el diseño y contenido completo de X.
     private function render_card_x($post) {
         $url = $post['url'] ?? '';
         ob_start();
         ?>
         <div class="minfin-social-feed__x-embed">
-            <blockquote class="twitter-tweet" data-lang="es" data-dnt="true">
-                <a href="<?php echo esc_url($url); ?>"></a>
-            </blockquote>
+            <blockquote class="twitter-tweet" data-lang="es" data-dnt="true"><a href="<?php echo esc_url($url); ?>"></a></blockquote>
+            <a class="minfin-social-feed__x-cta" href="<?php echo esc_url($url); ?>" target="_blank" rel="noopener noreferrer">Ver publicación en X</a>
         </div>
         <?php
         return ob_get_clean();
@@ -709,12 +739,14 @@ class Minfin_Social_Feed {
 .minfin-social-feed__footer a:hover { text-decoration: underline; }
 .minfin-social-feed__stats { display: flex; gap: 10px; color: #475569; font-family: monospace; }
 .minfin-social-feed__brand { color: #94a3b8; font-family: monospace; }
-.minfin-social-feed__x-embed { display: flex; justify-content: center; }
+.minfin-social-feed__x-embed { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .minfin-social-feed__x-embed .twitter-tweet { margin: 0 auto !important; }
+.minfin-social-feed__x-cta { display: inline-block; padding: 8px 16px; border: 1px solid #c7d4dc; border-radius: 999px; color: #006fd6; font: 700 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; }
+.minfin-social-feed__x-cta:hover { background: #f1f7fb; text-decoration: none; }
 .minfin-social-feed__fb-embed { display: flex; justify-content: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
-.minfin-social-feed__fb-embed iframe { width: 100%; max-width: 500px; height: 680px; }
+.minfin-social-feed__fb-embed iframe { width: 100%; max-width: 500px; height: clamp(420px, 72vw, 680px); }
 .minfin-social-feed__li-embed { display: flex; justify-content: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
-.minfin-social-feed__li-embed iframe { width: 100%; max-width: 504px; height: 670px; }
+.minfin-social-feed__li-embed iframe { width: 100%; max-width: 504px; height: clamp(380px, 68vw, 670px); }
 .minfin-social-feed__ig-embed { display: flex; justify-content: center; }
 .minfin-social-feed__ig-embed .instagram-media { margin: 0 auto !important; }
 .minfin-social-feed-error { padding: 12px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 8px; font-size: 13px; }

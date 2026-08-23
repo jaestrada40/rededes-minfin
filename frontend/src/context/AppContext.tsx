@@ -424,8 +424,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const result = await authApi.login(email, password);
       if (result.setupToken) setPendingSetupToken(result.setupToken);
       if (result.challengeToken) setPendingChallengeToken(result.challengeToken);
-      if (result.accessToken && result.refreshToken) {
-        await onAuthenticated({ accessToken: result.accessToken, refreshToken: result.refreshToken });
+      if (result.accessToken) {
+        await onAuthenticated({ accessToken: result.accessToken });
       }
       return { requiresMfaSetup: result.requiresMfaSetup, requiresMfaCode: result.requiresMfaCode };
     } catch (e) {

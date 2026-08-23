@@ -1,109 +1,45 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 
-interface AttemptRecord {
-  failures: number;
-  /** Momento (epoch ms) en que expira la ventana o el bloqueo vigente. */
-  expiresAt: number;
-  lockedUntil: number | null;
-}
-
-/**
- * Contador de intentos fallidos con bloqueo temporal, para credenciales y
- * códigos MFA.
- *
- * Sin esto, /auth/mfa/verify acepta intentos ilimitados de un código de 6
- * dígitos: con un solo millón de combinaciones por paso TOTP de 30s, un
- * atacante que ya tenga la contraseña puede recorrer el espacio completo y
- * eludir el segundo factor. El mismo problema aplica a /auth/login para
- * adivinar contraseñas.
- *
- * LIMITACIÓN CONOCIDA: el estado vive en memoria del proceso. Sirve para un
- * despliegue de una sola instancia, que es el caso actual, pero no se comparte
- * entre réplicas ni sobrevive a un reinicio. Si el backend se escala
- * horizontalmente, este contador debe moverse a Redis o a una tabla de la base
- * de datos para que el límite sea real.
- */
+/** Rate limiting durable y compartido por todas las réplicas. */
 @Injectable()
 export class AttemptLimiterService {
-  /** Fallos tolerados dentro de la ventana antes de bloquear. */
   private static readonly MAX_FAILURES = 5;
-  /** Ventana en la que se acumulan los fallos. */
-  private static readonly WINDOW_MS = 15 * 60 * 1000;
-  /** Duración del bloqueo una vez superado el umbral. */
-  private static readonly LOCKOUT_MS = 15 * 60 * 1000;
-  /** Tope de llaves vivas, para que la tabla no crezca sin límite. */
-  private static readonly MAX_ENTRIES = 10_000;
+  private static readonly WINDOW_MS = 5 * 60 * 1000;
+  private static readonly LOCKOUT_MS = 5 * 60 * 1000;
 
-  private readonly attempts = new Map<string, AttemptRecord>();
+  constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Segundos que faltan para poder reintentar, o null si la llave no está
-   * bloqueada. El llamador decide qué error levantar.
-   */
-  retryAfterSeconds(key: string): number | null {
-    const record = this.attempts.get(key);
-    if (!record?.lockedUntil) return null;
-
-    const now = Date.now();
-    if (record.lockedUntil <= now) {
-      this.attempts.delete(key);
-      return null;
-    }
-    return Math.ceil((record.lockedUntil - now) / 1000);
+  async retryAfterSeconds(key: string): Promise<number | null> {
+    const record = await this.prisma.authAttempt.findUnique({ where: { key } });
+    if (!record?.lockedUntil || record.lockedUntil <= new Date()) return null;
+    return Math.ceil((record.lockedUntil.getTime() - Date.now()) / 1000);
   }
 
-  /**
-   * Registra un fallo. Devuelve true si con este fallo la llave quedó
-   * bloqueada, para que el llamador pueda auditarlo.
-   */
-  recordFailure(key: string): boolean {
-    const now = Date.now();
-    this.prune(now);
-
-    const existing = this.attempts.get(key);
-    const record: AttemptRecord =
-      existing && existing.expiresAt > now
-        ? existing
-        : {
-            failures: 0,
-            expiresAt: now + AttemptLimiterService.WINDOW_MS,
-            lockedUntil: null,
-          };
-
-    record.failures += 1;
-
-    if (record.failures >= AttemptLimiterService.MAX_FAILURES) {
-      record.lockedUntil = now + AttemptLimiterService.LOCKOUT_MS;
-      record.expiresAt = record.lockedUntil;
-      this.attempts.set(key, record);
-      return true;
-    }
-
-    this.attempts.set(key, record);
-    return false;
+  async recordFailure(key: string, maxFailures = AttemptLimiterService.MAX_FAILURES): Promise<boolean> {
+    // Una sola sentencia evita que peticiones concurrentes pierdan incrementos.
+    const rows = await this.prisma.$queryRaw<{ lockedUntil: Date | null }[]>(
+      Prisma.sql`
+        INSERT INTO "AuthAttempt" ("key", "failures", "expiresAt", "lockedUntil", "updatedAt")
+        VALUES (${key}, 1, NOW() + INTERVAL '5 minutes', NULL, NOW())
+        ON CONFLICT ("key") DO UPDATE SET
+          "failures" = CASE WHEN "AuthAttempt"."expiresAt" > NOW()
+            THEN "AuthAttempt"."failures" + 1 ELSE 1 END,
+          "lockedUntil" = CASE WHEN
+            (CASE WHEN "AuthAttempt"."expiresAt" > NOW() THEN "AuthAttempt"."failures" + 1 ELSE 1 END) >= ${maxFailures}
+            THEN NOW() + INTERVAL '5 minutes' ELSE NULL END,
+          "expiresAt" = CASE WHEN
+            (CASE WHEN "AuthAttempt"."expiresAt" > NOW() THEN "AuthAttempt"."failures" + 1 ELSE 1 END) >= ${maxFailures}
+            THEN NOW() + INTERVAL '5 minutes' ELSE NOW() + INTERVAL '5 minutes' END,
+          "updatedAt" = NOW()
+        RETURNING "lockedUntil"
+      `,
+    );
+    return !!rows[0]?.lockedUntil;
   }
 
-  /** Limpia el historial tras un intento exitoso. */
-  reset(key: string): void {
-    this.attempts.delete(key);
-  }
-
-  /**
-   * Descarta entradas vencidas. Si aun así se supera el tope, se vacía la
-   * tabla entera: perder el conteo es preferible a crecer sin control, y el
-   * escenario solo se alcanza bajo un volumen de llaves anómalo.
-   */
-  private prune(now: number): void {
-    for (const [key, record] of this.attempts) {
-      if (
-        record.expiresAt <= now &&
-        (!record.lockedUntil || record.lockedUntil <= now)
-      ) {
-        this.attempts.delete(key);
-      }
-    }
-    if (this.attempts.size > AttemptLimiterService.MAX_ENTRIES) {
-      this.attempts.clear();
-    }
+  async reset(key: string): Promise<void> {
+    await this.prisma.authAttempt.deleteMany({ where: { key } });
   }
 }

@@ -174,3 +174,20 @@ model SystemSettings {
   contactSupportEmail     String   @default("soporte.dti@minfin.gob.gt")
   maintenanceMode         Boolean  @default(false)
 }
+
+// Contador de intentos fallidos de autenticación (contraseña y códigos MFA).
+// Vive en la base y no en memoria del proceso para que el límite siga siendo
+// efectivo con varias réplicas del backend y sobreviva a un reinicio: un
+// contador en memoria se reinicia con el proceso, lo que por sí solo devuelve
+// al atacante todos sus intentos.
+model AuthAttempt {
+  // Llave lógica del intento, p. ej. "login:<correo>" o "mfa:<userId>".
+  key         String    @id
+  failures    Int       @default(0)
+  // Fin de la ventana en la que se acumulan los fallos, o del bloqueo vigente.
+  expiresAt   DateTime
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([expiresAt])
+}

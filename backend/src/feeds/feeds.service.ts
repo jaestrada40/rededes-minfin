@@ -208,6 +208,32 @@ async function fetchTwitterCard(postId: string): Promise<OEmbedResult | null> {
     const text = asString(data.text);
     if (!text) return null;
 
+    // X almacena todos los enlaces como t.co. Para el portal se conserva el
+    // enlace institucional expandido, pero se retira del texto el t.co que
+    // corresponde al archivo multimedia (ya se renderiza como adjunto).
+    const entities = asObject(data.entities);
+    const urlEntities = Array.isArray(entities?.urls)
+      ? entities.urls.map(asObject).filter(Boolean)
+      : [];
+    const mediaEntities = Array.isArray(entities?.media)
+      ? entities.media.map(asObject).filter(Boolean)
+      : [];
+    let normalizedText = text;
+    for (const entity of urlEntities) {
+      const shortUrl = asString(entity?.url);
+      const expandedUrl = asString(entity?.expanded_url);
+      if (shortUrl && expandedUrl) {
+        normalizedText = normalizedText.split(shortUrl).join(expandedUrl);
+      }
+    }
+    for (const entity of mediaEntities) {
+      const shortUrl = asString(entity?.url);
+      if (shortUrl) {
+        normalizedText = normalizedText.split(shortUrl).join('');
+      }
+    }
+    normalizedText = normalizedText.replace(/[ \t]+\n/g, '\n').trim();
+
     const media = Array.isArray(data.mediaDetails)
       ? asObject(data.mediaDetails[0])
       : undefined;
@@ -219,7 +245,7 @@ async function fetchTwitterCard(postId: string): Promise<OEmbedResult | null> {
       asString(asObject(data.video)?.poster);
 
     return {
-      title: text,
+      title: normalizedText,
       authorName: asString(user?.name),
       thumbnailUrl,
       authorAvatarUrl: asString(user?.profile_image_url_https),

@@ -112,6 +112,10 @@ export class UsersService {
       data: { roleId: role.id },
       omit: { passwordHash: true },
     });
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
 
     await this.audit.log({
       userId: actor.id,
@@ -139,7 +143,6 @@ export class UsersService {
       data: dto,
       omit: { passwordHash: true },
     });
-
     await this.audit.log({
       userId: actor.id,
       userEmail: actor.email,
@@ -170,6 +173,12 @@ export class UsersService {
       data: { isActive },
       omit: { passwordHash: true },
     });
+    if (!isActive) {
+      await this.prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
 
     await this.audit.log({
       userId: actor.id,
@@ -197,7 +206,6 @@ export class UsersService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
-
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { mfaEnabled: false },
@@ -276,6 +284,10 @@ export class UsersService {
     await this.prisma.user.update({
       where: { id: userId },
       data: { passwordHash },
+    });
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
     });
 
     await this.audit.log({
