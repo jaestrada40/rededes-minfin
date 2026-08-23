@@ -1,23 +1,10 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-const REFRESH_TOKEN_KEY = 'minfin_refresh_token';
 
 let accessToken: string | null = null;
 let onSessionExpired: (() => void) | null = null;
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
-}
-
-export function getRefreshToken(): string | null {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
-}
-
-export function setRefreshToken(token: string | null): void {
-  if (token) {
-    localStorage.setItem(REFRESH_TOKEN_KEY, token);
-  } else {
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-  }
 }
 
 export function onSessionExpire(handler: () => void): void {
@@ -45,27 +32,23 @@ async function doFetch(path: string, options: RequestInit): Promise<Response> {
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-  return fetch(`${API_URL}${path}`, { ...options, headers });
+  return fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
 }
 
 let refreshPromise: Promise<boolean> | null = null;
 
 async function tryRefresh(): Promise<boolean> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
-
   if (!refreshPromise) {
     refreshPromise = (async () => {
       try {
         const res = await fetch(`${API_URL}/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
+          credentials: 'include',
         });
         if (!res.ok) return false;
         const data = await res.json();
         setAccessToken(data.accessToken);
-        setRefreshToken(data.refreshToken);
         return true;
       } catch {
         return false;
@@ -86,7 +69,6 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, retry
       return apiFetch<T>(path, options, false);
     }
     setAccessToken(null);
-    setRefreshToken(null);
     onSessionExpired?.();
     throw new ApiError(401, 'Sesión expirada. Inicie sesión nuevamente.');
   }

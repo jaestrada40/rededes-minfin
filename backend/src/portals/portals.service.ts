@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { WordPressPortal } from '@prisma/client';
+import { resolve4, resolve6 } from 'node:dns/promises';
+import { request } from 'node:https';
+import { isIP } from 'node:net';
 import { CreatePortalDto } from './dto/create-portal.dto';
 import { UpdatePortalDto } from './dto/update-portal.dto';
 
@@ -134,23 +137,49 @@ export class PortalsService {
   // sin que eso signifique que el sitio esté caído. Solo un fallo de red real
   // (DNS, timeout, conexión rechazada) se considera "sin conexión".
   private async checkPortalReachable(domain: string): Promise<boolean> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    // El valor procede de la administración, pero no debe convertirse en un
+    // proxy hacia la red interna. Solo aceptamos FQDN públicos y comprobamos
+    // todas sus resoluciones antes de abrir la conexión.
+    if (!/^(?=.{1,253}$)(?!-)[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(domain) || isIP(domain)) {
+      return false;
+    }
     try {
-      await fetch(`https://${domain}`, {
-        method: 'GET',
-        redirect: 'follow',
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; MinfinGestorBot/1.0)',
-        },
-      });
-      return true;
+      const resolutions = await Promise.allSettled([resolve4(domain), resolve6(domain)]);
+      const addresses = resolutions.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+      if (!addresses.length || addresses.some((address) => this.isPrivateAddress(address))) {
+        return false;
+      }
+      return await this.fetchPinnedHttps(domain, addresses[0]);
     } catch {
       return false;
-    } finally {
-      clearTimeout(timeout);
     }
+  }
+
+  private fetchPinnedHttps(hostname: string, address: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const req = request({
+        hostname,
+        method: 'GET',
+        timeout: 6000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MinfinGestorBot/1.0)' },
+        lookup: (_host, _options, callback) => callback(null, address, isIP(address) === 6 ? 6 : 4),
+      }, (res) => {
+        res.resume();
+        resolve(true);
+      });
+      req.once('timeout', () => req.destroy());
+      req.once('error', () => resolve(false));
+      req.end();
+    });
+  }
+
+  private isPrivateAddress(address: string): boolean {
+    const normalized = address.toLowerCase();
+    const mappedIpv4 = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+    if (mappedIpv4) return this.isPrivateAddress(mappedIpv4);
+    if (normalized === '::1' || normalized === '::' || normalized.startsWith('fe80:') || normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
+    const [a, b] = normalized.split('.').map(Number);
+    return a === 10 || a === 127 || a === 0 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && (b === 0 || b === 168)) || (a === 198 && (b === 18 || b === 19));
   }
 
   async syncAll(actor: {

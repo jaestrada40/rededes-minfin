@@ -3,6 +3,21 @@ import { PortalsService } from './portals.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 
+jest.mock('node:dns/promises', () => ({
+  resolve4: jest.fn().mockResolvedValue(['8.8.8.8']),
+  resolve6: jest.fn().mockResolvedValue([]),
+}));
+jest.mock('node:https', () => ({
+  request: jest.fn((_options: unknown, callback: (res: { resume: () => void }) => void) => {
+    const req = {
+      once: jest.fn(),
+      end: jest.fn(() => callback({ resume: jest.fn() })),
+      destroy: jest.fn(),
+    };
+    return req;
+  }),
+}));
+
 describe('PortalsService', () => {
   let service: PortalsService;
   const prismaMock = {

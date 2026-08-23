@@ -1,4 +1,4 @@
-import { apiPost, apiFetch, setAccessToken, setRefreshToken, getRefreshToken } from './client';
+import { apiPost, apiFetch, setAccessToken } from './client';
 
 export interface LoginResult {
   requiresMfaSetup?: true;
@@ -6,7 +6,6 @@ export interface LoginResult {
   setupToken?: string;
   challengeToken?: string;
   accessToken?: string;
-  refreshToken?: string;
 }
 
 export interface MfaSetupResult {
@@ -16,7 +15,6 @@ export interface MfaSetupResult {
 
 export interface TokenPair {
   accessToken: string;
-  refreshToken: string;
 }
 
 export function login(email: string, password: string): Promise<LoginResult> {
@@ -46,18 +44,14 @@ export function restoreSession(): Promise<TokenPair | null> {
   if (restoreSessionPromise) return restoreSessionPromise;
 
   restoreSessionPromise = (async () => {
-    const refreshToken = getRefreshToken();
-    if (!refreshToken) return null;
     try {
       const tokens = await apiFetch<TokenPair>('/auth/refresh', {
         method: 'POST',
-        body: JSON.stringify({ refreshToken }),
       }, false);
       applyTokens(tokens);
       return tokens;
     } catch {
       setAccessToken(null);
-      setRefreshToken(null);
       return null;
     } finally {
       restoreSessionPromise = null;
@@ -69,19 +63,14 @@ export function restoreSession(): Promise<TokenPair | null> {
 
 export function applyTokens(tokens: TokenPair): void {
   setAccessToken(tokens.accessToken);
-  setRefreshToken(tokens.refreshToken);
 }
 
 export async function logout(): Promise<void> {
-  const refreshToken = getRefreshToken();
   setAccessToken(null);
-  setRefreshToken(null);
-  if (refreshToken) {
-    try {
-      await apiFetch('/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken }) }, false);
-    } catch {
-      // best-effort revoke; local session is already cleared
-    }
+  try {
+    await apiFetch('/auth/logout', { method: 'POST' }, false);
+  } catch {
+    // best-effort revoke; local session is already cleared
   }
 }
 

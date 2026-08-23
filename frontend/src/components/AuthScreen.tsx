@@ -57,7 +57,7 @@ export const AuthScreen: React.FC = () => {
   };
 
   const stepCopy: Record<Step, { title: string; subtitle: string }> = {
-    login: { title: 'Bienvenido', subtitle: 'Ingrese con sus credenciales institucionales.' },
+    login: { title: 'Bienvenido', subtitle: 'Ingrese sus credenciales.' },
     'mfa-setup': { title: 'Configure su MFA', subtitle: 'Escanee el código y confirme con su app de autenticación.' },
     'mfa-verify': { title: 'Verificación en dos pasos', subtitle: 'Ingrese el código de su app de autenticación.' }
   };
@@ -103,10 +103,6 @@ export const AuthScreen: React.FC = () => {
       {/* Access panel */}
       <section className="flex flex-col min-w-0 bg-white">
         <div className="flex flex-1 w-[calc(100%-2.5rem)] sm:w-[min(100%-3rem,510px)] mx-auto py-10 sm:py-16 lg:py-[clamp(48px,10vh,120px)] flex-col justify-center">
-          <div className="flex items-center gap-2.5 w-max max-w-full px-3.5 py-2.5 border border-[#d9e0eb] rounded-[9px] text-[#42547a] text-[0.84rem] font-semibold">
-            <span>Acceso seguro · Red Gubernamental MINFIN</span>
-          </div>
-
           <header className="my-8 sm:my-14 text-center lg:text-left">
             <h2 className="m-0 mb-2.5 font-extrabold tracking-[-0.05em] text-[2.35rem] sm:text-[3.25rem]">
               {stepCopy[step].title}
@@ -301,12 +297,6 @@ export const AuthScreen: React.FC = () => {
             </form>
           )}
 
-          <a
-            className="self-center mt-8 text-[#174894] font-bold text-[0.94rem] no-underline hover:underline"
-            href="mailto:soporte.dti@minfin.gob.gt"
-          >
-            ¿Necesita ayuda?
-          </a>
         </div>
 
         <footer className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-8 px-6 sm:px-[clamp(24px,5vw,76px)] py-6 border-t border-[#e5eaf1] bg-[#f7f9fc] text-[#506180] text-xs leading-relaxed">

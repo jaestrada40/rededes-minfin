@@ -4,10 +4,10 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: minfin
-      POSTGRES_PASSWORD: minfin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}
       POSTGRES_DB: minfin_social
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - minfin_pg_data:/var/lib/postgresql/data
 
@@ -15,15 +15,15 @@ services:
     image: mysql:8.0
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: wproot
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Defina MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: wordpress
       MYSQL_USER: wordpress
-      MYSQL_PASSWORD: wordpress
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Defina MYSQL_PASSWORD}
     volumes:
       - minfin_wp_mysql_data:/var/lib/mysql
 
   wordpress:
-    image: wordpress:latest
+    image: wordpress:6.8.3-php8.3-apache
     restart: unless-stopped
     depends_on:
       - wp_mysql
@@ -31,9 +31,11 @@ services:
       WORDPRESS_DB_HOST: wp_mysql:3306
       WORDPRESS_DB_NAME: wordpress
       WORDPRESS_DB_USER: wordpress
-      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD:?Defina MYSQL_PASSWORD}
+      WORDPRESS_DEBUG: "1"
     ports:
-      - "8080:80"
+      # Solo desarrollo local. Producción debe colocar HTTPS en un proxy inverso.
+      - "127.0.0.1:8080:80"
     volumes:
       - minfin_wp_data:/var/www/html
       - ./wordpress-plugin/minfin-social-feed:/var/www/html/wp-content/plugins/minfin-social-feed

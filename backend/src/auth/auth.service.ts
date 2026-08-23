@@ -81,8 +81,8 @@ export class AuthService {
   ) {}
 
   // Rechaza el intento si la llave está bloqueada por fallos acumulados.
-  private assertNotLocked(key: string): void {
-    const retryAfter = this.attempts.retryAfterSeconds(key);
+  private async assertNotLocked(key: string): Promise<void> {
+    const retryAfter = await this.attempts.retryAfterSeconds(key);
     if (retryAfter !== null) {
       throw new HttpException(
         `Demasiados intentos fallidos. Vuelva a intentar en ${Math.ceil(retryAfter / 60)} minuto(s).`,
@@ -137,7 +137,7 @@ export class AuthService {
     // Mismo límite que en el login: sin él, estas acciones sensibles serían
     // otro camino para adivinar el código TOTP por fuerza bruta.
     const attemptKey = `mfa-stepup:${userId}`;
-    this.assertNotLocked(attemptKey);
+    await this.assertNotLocked(attemptKey);
 
     const settings = await this.prisma.mfaSettings.findUnique({
       where: { userId },
@@ -150,16 +150,22 @@ export class AuthService {
       this.decryptSecret(settings.secretEncrypted),
     );
     if (valid) {
-      this.attempts.reset(attemptKey);
+      await this.attempts.reset(attemptKey);
     } else {
-      this.attempts.recordFailure(attemptKey);
+      await this.attempts.recordFailure(attemptKey);
     }
     return valid;
   }
 
-  async login(email: string, password: string): Promise<LoginResult> {
-    const attemptKey = `login:${email.toLowerCase()}`;
-    this.assertNotLocked(attemptKey);
+  async login(email: string, password: string, ip?: string): Promise<LoginResult> {
+    const safeIp = ip ?? 'unknown';
+    const accountIpKey = `login-account-ip:${email.toLowerCase()}:${safeIp}`;
+    const ipKey = `login-ip:${safeIp}`;
+    // Dos presupuestos independientes: el primero frena adivinación dirigida;
+    // el segundo abuso masivo desde una IP. Un login correcto solo reinicia su
+    // propio par cuenta+IP, nunca el presupuesto compartido de la IP.
+    await this.assertNotLocked(accountIpKey);
+    await this.assertNotLocked(ipKey);
 
     const user = await this.users.findByEmail(email);
     // Se compara siempre, incluso sin usuario: contra un hash señuelo del mismo
@@ -171,7 +177,9 @@ export class AuthService {
     );
 
     if (!user || !valid) {
-      const locked = this.attempts.recordFailure(attemptKey);
+      const accountLocked = await this.attempts.recordFailure(accountIpKey);
+      const ipLocked = await this.attempts.recordFailure(ipKey, 20);
+      const locked = accountLocked || ipLocked;
       await this.audit.log({
         userEmail: email,
         userRole: 'desconocido',
@@ -184,7 +192,7 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    this.attempts.reset(attemptKey);
+    await this.attempts.reset(accountIpKey);
 
     if (!user.isActive) {
       await this.audit.log({
@@ -282,7 +290,7 @@ export class AuthService {
       throw new UnauthorizedException('Token inválido');
 
     const attemptKey = `mfa-setup:${payload.userId}`;
-    this.assertNotLocked(attemptKey);
+    await this.assertNotLocked(attemptKey);
 
     // El secreto se recupera del registro pendiente creado en mfaSetup; exigir
     // verifiedAt null evita que este flujo reinicie un MFA ya configurado.
@@ -300,7 +308,7 @@ export class AuthService {
       this.decryptSecret(pending.secretEncrypted),
     );
     if (!validCode) {
-      const locked = this.attempts.recordFailure(attemptKey);
+      const locked = await this.attempts.recordFailure(attemptKey);
       await this.audit.log({
         userId: payload.userId,
         userEmail: 'desconocido',
@@ -315,7 +323,7 @@ export class AuthService {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
-    this.attempts.reset(attemptKey);
+    await this.attempts.reset(attemptKey);
     // El secreto ya está almacenado; aquí solo se marca como verificado.
     await this.prisma.mfaSettings.update({
       where: { userId: payload.userId },
@@ -344,7 +352,7 @@ export class AuthService {
     // JWT sin estado y el atacante puede acuñar uno nuevo cada 5 minutos, así
     // que contar por token no limitaría nada.
     const attemptKey = `mfa:${payload.userId}`;
-    this.assertNotLocked(attemptKey);
+    await this.assertNotLocked(attemptKey);
 
     const settings = await this.prisma.mfaSettings.findUnique({
       where: { userId: payload.userId },
@@ -354,7 +362,7 @@ export class AuthService {
       : false;
 
     if (!validCode) {
-      const locked = this.attempts.recordFailure(attemptKey);
+      const locked = await this.attempts.recordFailure(attemptKey);
       await this.audit.log({
         userId: payload.userId,
         userEmail: 'desconocido',
@@ -369,7 +377,7 @@ export class AuthService {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
-    this.attempts.reset(attemptKey);
+    await this.attempts.reset(attemptKey);
     await this.prisma.user.update({
       where: { id: payload.userId },
       data: { lastLoginAt: new Date() },

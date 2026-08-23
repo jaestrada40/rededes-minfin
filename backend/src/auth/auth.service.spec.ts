@@ -11,6 +11,8 @@ import { AttemptLimiterService } from './attempt-limiter.service';
 
 describe('AuthService', () => {
   let service: AuthService;
+  const attemptStore = new Map<string, any>();
+  const rawAttemptStore = new Map<string, number>();
   const passwordHash = bcrypt.hashSync('Password123!', 10);
 
   const userNoMfa = {
@@ -29,6 +31,14 @@ describe('AuthService', () => {
     get: jest.fn().mockResolvedValue({ mfaRequired: true }),
   };
   const prismaMock = {
+    $queryRaw: jest.fn((sql: any) => {
+      const key = sql.values[0] as string;
+      const failures = (rawAttemptStore.get(key) ?? 0) + 1;
+      rawAttemptStore.set(key, failures);
+      const lockedUntil = failures >= 5 ? new Date(Date.now() + 60_000) : null;
+      attemptStore.set(key, { lockedUntil, expiresAt: new Date(Date.now() + 60_000), failures });
+      return Promise.resolve([{ lockedUntil }]);
+    }),
     mfaSettings: {
       create: jest.fn().mockResolvedValue({}),
       update: jest.fn().mockResolvedValue({}),
@@ -45,9 +55,22 @@ describe('AuthService', () => {
       update: jest.fn(),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    authAttempt: {
+      findUnique: jest.fn(({ where }: any) => Promise.resolve(attemptStore.get(where.key) ?? null)),
+      upsert: jest.fn(({ where, create, update }: any) => {
+        attemptStore.set(where.key, attemptStore.has(where.key) ? { key: where.key, ...update } : create);
+        return Promise.resolve({});
+      }),
+      deleteMany: jest.fn(({ where }: any) => {
+        attemptStore.delete(where.key);
+        return Promise.resolve({});
+      }),
+    },
   };
 
   beforeEach(async () => {
+    attemptStore.clear();
+    rawAttemptStore.clear();
     process.env.JWT_ACCESS_SECRET = 'test-secret';
     process.env.MFA_ENCRYPTION_KEY = '0'.repeat(64);
     const moduleRef = await Test.createTestingModule({
@@ -58,8 +81,6 @@ describe('AuthService', () => {
         { provide: UsersService, useValue: usersMock },
         { provide: AuditService, useValue: auditMock },
         { provide: SettingsService, useValue: settingsMock },
-        // Instancia real: es un contador en memoria sin dependencias, y así
-        // las pruebas ejercitan el límite de intentos de verdad.
         AttemptLimiterService,
       ],
     }).compile();
