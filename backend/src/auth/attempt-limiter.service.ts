@@ -17,7 +17,10 @@ export class AttemptLimiterService {
     return Math.ceil((record.lockedUntil.getTime() - Date.now()) / 1000);
   }
 
-  async recordFailure(key: string, maxFailures = AttemptLimiterService.MAX_FAILURES): Promise<boolean> {
+  async recordFailure(
+    key: string,
+    maxFailures = AttemptLimiterService.MAX_FAILURES,
+  ): Promise<boolean> {
     // Una sola sentencia evita que peticiones concurrentes pierdan incrementos.
     const rows = await this.prisma.$queryRaw<{ lockedUntil: Date | null }[]>(
       Prisma.sql`

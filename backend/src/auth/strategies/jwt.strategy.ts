@@ -25,7 +25,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     // cambio de privilegios es efectivo inmediatamente, no al expirar el JWT.
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, email: true, isActive: true, role: { select: { name: true } } },
+      select: {
+        id: true,
+        email: true,
+        isActive: true,
+        role: { select: { name: true } },
+      },
     });
     if (!user?.isActive) throw new UnauthorizedException();
     return { id: user.id, email: user.email, role: user.role.name };

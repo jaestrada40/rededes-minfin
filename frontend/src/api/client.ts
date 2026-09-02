@@ -1,4 +1,6 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+// En producción no hace falta build-arg: nginx.conf hace proxy_pass de las
+// rutas de la API al Service del backend, así que la ruta relativa basta.
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000' : '');
 
 let accessToken: string | null = null;
 let onSessionExpired: (() => void) | null = null;
@@ -63,7 +65,11 @@ async function tryRefresh(): Promise<boolean> {
 export async function apiFetch<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
   const res = await doFetch(path, options);
 
-  if (res.status === 401 && retry) {
+  // Los endpoints de /auth/* (login, mfa/setup, mfa/verify) todavía no tienen
+  // sesión que refrescar: un 401 ahí es "credenciales/código inválido", no
+  // "sesión expirada". Intentar el refresh acá solo enmascara el mensaje real
+  // del backend con el genérico de sesión expirada.
+  if (res.status === 401 && retry && !path.startsWith('/auth/')) {
     const refreshed = await tryRefresh();
     if (refreshed) {
       return apiFetch<T>(path, options, false);

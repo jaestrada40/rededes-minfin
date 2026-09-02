@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minfin-backend
+  labels:
+    app: minfin-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minfin-backend
+  template:
+    metadata:
+      labels:
+        app: minfin-backend
+    spec:
+      imagePullSecrets:
+        - name: srv-osnexus01.minfin.gob.gt
+      containers:
+        - name: backend
+          image: srv-osnexus01.minfin.gob.gt:8006/portal-redes-minfin-backend-img:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: minfin-backend-config
+            - secretRef:
+                name: minfin-backend-secrets
+          readinessProbe:
+            httpGet:
+              path: /public/branding
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /public/branding
+              port: 4000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      # No fijar securityContext.runAsUser: OpenShift asigna un UID
+      # arbitrario según la SCC "restricted" del proyecto.

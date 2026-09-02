@@ -157,7 +157,11 @@ export class AuthService {
     return valid;
   }
 
-  async login(email: string, password: string, ip?: string): Promise<LoginResult> {
+  async login(
+    email: string,
+    password: string,
+    ip?: string,
+  ): Promise<LoginResult> {
     const safeIp = ip ?? 'unknown';
     const accountIpKey = `login-account-ip:${email.toLowerCase()}:${safeIp}`;
     const ipKey = `login-ip:${safeIp}`;

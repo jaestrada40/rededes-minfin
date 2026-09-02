@@ -8,14 +8,16 @@ jest.mock('node:dns/promises', () => ({
   resolve6: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('node:https', () => ({
-  request: jest.fn((_options: unknown, callback: (res: { resume: () => void }) => void) => {
-    const req = {
-      once: jest.fn(),
-      end: jest.fn(() => callback({ resume: jest.fn() })),
-      destroy: jest.fn(),
-    };
-    return req;
-  }),
+  request: jest.fn(
+    (_options: unknown, callback: (res: { resume: () => void }) => void) => {
+      const req = {
+        once: jest.fn(),
+        end: jest.fn(() => callback({ resume: jest.fn() })),
+        destroy: jest.fn(),
+      };
+      return req;
+    },
+  ),
 }));
 
 describe('PortalsService', () => {

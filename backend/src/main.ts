@@ -12,7 +12,9 @@ async function bootstrap() {
     !process.env.JWT_ACCESS_SECRET ||
     process.env.JWT_ACCESS_SECRET === 'change-me-access-secret'
   ) {
-    throw new Error('JWT_ACCESS_SECRET debe ser un secreto de producción único');
+    throw new Error(
+      'JWT_ACCESS_SECRET debe ser un secreto de producción único',
+    );
   }
   if (
     !/^[0-9a-f]{64}$/i.test(process.env.MFA_ENCRYPTION_KEY ?? '') ||
@@ -44,7 +46,11 @@ async function bootstrap() {
   // El filtro global de excepciones se registra vía APP_FILTER en CommonModule,
   // para que las pruebas e2e usen el mismo mapeo de errores que producción.
   app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
   );
   app.enableCors({
     origin: process.env.CORS_ORIGIN.split(','),
