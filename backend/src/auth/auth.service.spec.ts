@@ -36,7 +36,11 @@ describe('AuthService', () => {
       const failures = (rawAttemptStore.get(key) ?? 0) + 1;
       rawAttemptStore.set(key, failures);
       const lockedUntil = failures >= 5 ? new Date(Date.now() + 60_000) : null;
-      attemptStore.set(key, { lockedUntil, expiresAt: new Date(Date.now() + 60_000), failures });
+      attemptStore.set(key, {
+        lockedUntil,
+        expiresAt: new Date(Date.now() + 60_000),
+        failures,
+      });
       return Promise.resolve([{ lockedUntil }]);
     }),
     mfaSettings: {
@@ -56,9 +60,14 @@ describe('AuthService', () => {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     authAttempt: {
-      findUnique: jest.fn(({ where }: any) => Promise.resolve(attemptStore.get(where.key) ?? null)),
+      findUnique: jest.fn(({ where }: any) =>
+        Promise.resolve(attemptStore.get(where.key) ?? null),
+      ),
       upsert: jest.fn(({ where, create, update }: any) => {
-        attemptStore.set(where.key, attemptStore.has(where.key) ? { key: where.key, ...update } : create);
+        attemptStore.set(
+          where.key,
+          attemptStore.has(where.key) ? { key: where.key, ...update } : create,
+        );
         return Promise.resolve({});
       }),
       deleteMany: jest.fn(({ where }: any) => {

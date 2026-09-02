@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  MinLength,
 } from 'class-validator';
 
 export class UpdateSettingsDto {
@@ -24,4 +25,5 @@ export class UpdateSettingsDto {
   @IsOptional() @IsString() logoUrl?: string;
   @IsOptional() @IsObject() apiKeys?: Record<string, string>;
   @IsOptional() @IsBoolean() mfaRequired?: boolean;
+  @IsOptional() @IsString() @MinLength(16) webhookSecret?: string;
 }

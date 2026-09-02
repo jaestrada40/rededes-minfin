@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: minfin-backend
+  labels:
+    app: minfin-backend
+spec:
+  selector:
+    app: minfin-backend
+  ports:
+    - name: http
+      port: 4000
+      targetPort: 4000
+      protocol: TCP

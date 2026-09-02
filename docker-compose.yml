@@ -35,7 +35,7 @@ services:
       WORDPRESS_DEBUG: "1"
     ports:
       # Solo desarrollo local. Producción debe colocar HTTPS en un proxy inverso.
-      - "127.0.0.1:8080:80"
+      - "127.0.0.1:8090:80"
     volumes:
       - minfin_wp_data:/var/www/html
       - ./wordpress-plugin/minfin-social-feed:/var/www/html/wp-content/plugins/minfin-social-feed

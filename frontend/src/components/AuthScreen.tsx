@@ -31,7 +31,7 @@ export const AuthScreen: React.FC = () => {
     setLoading(true);
     const result = await login(email, password);
     if (result?.requiresMfaSetup) {
-      const setup = await mfaSetupBegin();
+      const setup = await mfaSetupBegin(result.setupToken);
       if (setup) {
         setQrDataUrl(setup.qrDataUrl);
         setStep('mfa-setup');

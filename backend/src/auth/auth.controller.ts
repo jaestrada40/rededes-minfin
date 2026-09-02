@@ -10,11 +10,13 @@ export class AuthController {
 
   private refreshTokenFrom(req: Request): string {
     const prefix = 'minfin_refresh_token=';
-    return (req.headers.cookie ?? '')
-      .split(';')
-      .map((entry) => entry.trim())
-      .find((entry) => entry.startsWith(prefix))
-      ?.slice(prefix.length) ?? '';
+    return (
+      (req.headers.cookie ?? '')
+        .split(';')
+        .map((entry) => entry.trim())
+        .find((entry) => entry.startsWith(prefix))
+        ?.slice(prefix.length) ?? ''
+    );
   }
 
   @Post('mfa/setup')
@@ -22,7 +24,10 @@ export class AuthController {
     return this.auth.mfaSetup(setupToken);
   }
 
-  private sendTokens(response: Response, tokens: { accessToken: string; refreshToken: string }) {
+  private sendTokens(
+    response: Response,
+    tokens: { accessToken: string; refreshToken: string },
+  ) {
     response.cookie('minfin_refresh_token', tokens.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -34,7 +39,11 @@ export class AuthController {
   }
 
   @Post('login')
-  async login(@Body() dto: LoginDto, @Req() req: Request, @Res() res: Response) {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     const result = await this.auth.login(dto.email, dto.password, req.ip);
     if ('accessToken' in result && result.accessToken && result.refreshToken) {
       return this.sendTokens(res, result);
@@ -43,13 +52,27 @@ export class AuthController {
   }
 
   @Post('mfa/setup/verify')
-  async mfaSetupVerify(@Body() dto: MfaVerifyDto, @Req() req: Request, @Res() res: Response) {
-    return this.sendTokens(res, await this.auth.mfaSetupVerify(dto.token, dto.code, req.ip));
+  async mfaSetupVerify(
+    @Body() dto: MfaVerifyDto,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    return this.sendTokens(
+      res,
+      await this.auth.mfaSetupVerify(dto.token, dto.code, req.ip),
+    );
   }
 
   @Post('mfa/verify')
-  async mfaVerify(@Body() dto: MfaVerifyDto, @Req() req: Request, @Res() res: Response) {
-    return this.sendTokens(res, await this.auth.mfaVerify(dto.token, dto.code, req.ip));
+  async mfaVerify(
+    @Body() dto: MfaVerifyDto,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    return this.sendTokens(
+      res,
+      await this.auth.mfaVerify(dto.token, dto.code, req.ip),
+    );
   }
 
   @Post('refresh')

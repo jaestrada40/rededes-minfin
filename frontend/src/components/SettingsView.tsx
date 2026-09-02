@@ -99,8 +99,13 @@ export const SettingsView: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    await updateSettings(formData);
-    setIsSaving(false);
+    try {
+      await updateSettings(formData);
+    } catch (err) {
+      showNotification(err instanceof Error ? err.message : 'No se pudo guardar la configuración.', 'error');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (

@@ -31,8 +31,8 @@ interface AppContextType {
   settingsLoaded: boolean;
   authError: string | null;
   user: UserProfile;
-  login: (email: string, password: string) => Promise<{ requiresMfaSetup?: boolean; requiresMfaCode?: boolean } | null>;
-  mfaSetupBegin: () => Promise<{ qrDataUrl: string } | null>;
+  login: (email: string, password: string) => Promise<{ requiresMfaSetup?: boolean; requiresMfaCode?: boolean; setupToken?: string } | null>;
+  mfaSetupBegin: (setupToken?: string) => Promise<{ qrDataUrl: string } | null>;
   mfaSetupComplete: (code: string) => Promise<boolean>;
   mfaVerifyCode: (code: string) => Promise<boolean>;
   logout: () => Promise<void>;
@@ -427,17 +427,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (result.accessToken) {
         await onAuthenticated({ accessToken: result.accessToken });
       }
-      return { requiresMfaSetup: result.requiresMfaSetup, requiresMfaCode: result.requiresMfaCode };
+      return {
+        requiresMfaSetup: result.requiresMfaSetup,
+        requiresMfaCode: result.requiresMfaCode,
+        setupToken: result.setupToken,
+      };
     } catch (e) {
       setAuthError(e instanceof ApiError ? e.message : 'No se pudo iniciar sesión.');
       return null;
     }
   };
 
-  const mfaSetupBegin = async () => {
-    if (!pendingSetupToken) return null;
+  const mfaSetupBegin = async (setupTokenOverride?: string) => {
+    // `login()` acaba de guardar el token con setPendingSetupToken, pero ese
+    // estado todavía no se refleja en este closure si se llama en la misma
+    // función que hizo login (React no ha vuelto a renderizar todavía) — por
+    // eso quien encadena login() + mfaSetupBegin() en el mismo submit debe
+    // pasar el token explícito en vez de confiar en el estado.
+    const token = setupTokenOverride ?? pendingSetupToken;
+    if (!token) return null;
     try {
-      const result = await authApi.mfaSetup(pendingSetupToken);
+      const result = await authApi.mfaSetup(token);
       setPendingVerifyToken(result.verifyToken);
       return { qrDataUrl: result.qrDataUrl };
     } catch (e) {

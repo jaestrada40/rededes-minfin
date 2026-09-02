@@ -1,0 +1,96 @@
+# PersistentVolumeClaim — almacenamiento persistente para PostgreSQL
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresql-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: thin  # Cambiar por el StorageClass disponible en tu cluster
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  labels:
+    app: postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+  strategy:
+    type: Recreate  # Necesario para volúmenes ReadWriteOnce
+  template:
+    metadata:
+      labels:
+        app: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: minfin_social
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-secret
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-secret
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgresql-data
+              mountPath: /var/lib/postgresql/data
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "redesadmin", "-d", "minfin_social"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      # No fijar securityContext.runAsUser/fsGroup: OpenShift asigna un UID
+      # arbitrario según la SCC "restricted" del proyecto (igual que backend
+      # y frontend); la imagen oficial de postgres corre bien con eso.
+      volumes:
+        - name: postgresql-data
+          persistentVolumeClaim:
+            claimName: postgresql-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+spec:
+  selector:
+    app: postgresql
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+# Debe coincidir con la contraseña usada en DATABASE_URL de
+# 01-backend-secret.yaml. No versionar con el valor real
+# (ver .gitignore: openshift/*secret*.yaml).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgresql-secret
+type: Opaque
+stringData:
+  username: redesadmin
+  password: "CAMBIAR_PASSWORD"
