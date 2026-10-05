@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Pagination } from './Pagination';
 import { Users, Plus, UserCircle, Pencil, X, Search, Ban, CheckCircle2, ShieldOff, KeyRound } from 'lucide-react';
+import { PasswordInput } from './PasswordInput';
 import { UserProfile, UserRole } from '../types';
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -36,6 +37,7 @@ export const UsersView: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
   const [passwordResetError, setPasswordResetError] = useState('');
+  const [saveError, setSaveError] = useState('');
 
   const [form, setForm] = useState({ email: '', password: '', name: '', role: 'editor' as UserRole, department: '' });
 
@@ -48,6 +50,7 @@ export const UsersView: React.FC = () => {
 
   const openCreateModal = () => {
     setForm({ email: '', password: '', name: '', role: 'editor', department: '' });
+    setSaveError('');
     setModal({ kind: 'create' });
   };
 
@@ -57,6 +60,7 @@ export const UsersView: React.FC = () => {
     setNewPassword('');
     setNewPasswordConfirm('');
     setPasswordResetError('');
+    setSaveError('');
     setModal({ kind: 'edit', target });
   };
 
@@ -65,6 +69,7 @@ export const UsersView: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordResetError('');
+    setSaveError('');
 
     if (modal?.kind === 'edit' && showPasswordReset) {
       if (newPassword.length < 8) {
@@ -78,22 +83,27 @@ export const UsersView: React.FC = () => {
     }
 
     setSaving(true);
-    if (modal?.kind === 'create') {
-      await createUser({ email: form.email, password: form.password, name: form.name, role: form.role, department: form.department || undefined });
-    } else if (modal?.kind === 'edit') {
-      const target = modal.target;
-      if (form.name !== target.name || form.department !== target.department || form.email !== target.email) {
-        await updateUser(target.id, { name: form.name, department: form.department, email: form.email });
+    try {
+      if (modal?.kind === 'create') {
+        await createUser({ email: form.email, password: form.password, name: form.name, role: form.role, department: form.department || undefined });
+      } else if (modal?.kind === 'edit') {
+        const target = modal.target;
+        if (form.name !== target.name || form.department !== target.department || form.email !== target.email) {
+          await updateUser(target.id, { name: form.name, department: form.department, email: form.email });
+        }
+        if (form.role !== target.role) {
+          await updateUserRole(target.id, form.role);
+        }
+        if (showPasswordReset && newPassword) {
+          await adminSetUserPassword(target.id, newPassword);
+        }
       }
-      if (form.role !== target.role) {
-        await updateUserRole(target.id, form.role);
-      }
-      if (showPasswordReset && newPassword) {
-        await adminSetUserPassword(target.id, newPassword);
-      }
+      closeModal();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'No se pudo guardar. Intente de nuevo.');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    closeModal();
   };
 
   const handleToggleActive = async (target: UserProfile) => {
@@ -282,8 +292,8 @@ export const UsersView: React.FC = () => {
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">Contraseña Temporal *</label>
-                    <input
-                      type="password"
+                    <PasswordInput
+                      
                       required
                       minLength={8}
                       autoComplete="new-password"
@@ -369,8 +379,8 @@ export const UsersView: React.FC = () => {
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                        <input
-                          type="password"
+                        <PasswordInput
+                          
                           minLength={8}
                           autoComplete="new-password"
                           name="reset-user-password"
@@ -379,8 +389,8 @@ export const UsersView: React.FC = () => {
                           placeholder="Mínimo 8 caracteres"
                           className="w-full bg-white border border-amber-300 rounded-lg p-2.5 text-slate-800 focus:outline-none focus:border-amber-500"
                         />
-                        <input
-                          type="password"
+                        <PasswordInput
+                          
                           minLength={8}
                           autoComplete="new-password"
                           name="reset-user-password-confirm"
@@ -411,6 +421,10 @@ export const UsersView: React.FC = () => {
                   ))}
                 </select>
               </div>
+
+              {saveError && (
+                <p className="text-red-600 font-semibold" role="alert">{saveError}</p>
+              )}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
                 <button

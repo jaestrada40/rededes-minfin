@@ -17,6 +17,7 @@ import {
   X
 } from 'lucide-react';
 import { UserRole } from '../types';
+import { PasswordInput } from './PasswordInput';
 
 interface HeaderProps {
   onOpenMobileMenu: () => void;
@@ -272,8 +273,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
             )}
             <div>
               <label className="block font-bold text-slate-700 mb-1">Contraseña Actual</label>
-              <input
-                type="password"
+              <PasswordInput
+                
                 required
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
@@ -282,8 +283,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
             </div>
             <div>
               <label className="block font-bold text-slate-700 mb-1">Nueva Contraseña</label>
-              <input
-                type="password"
+              <PasswordInput
+                
                 required
                 minLength={8}
                 value={newPassword}
@@ -294,8 +295,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
             </div>
             <div>
               <label className="block font-bold text-slate-700 mb-1">Confirmar Nueva Contraseña</label>
-              <input
-                type="password"
+              <PasswordInput
+                
                 required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}

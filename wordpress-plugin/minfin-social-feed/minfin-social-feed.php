@@ -36,6 +36,9 @@ class Minfin_Social_Feed {
             wp_send_json_error(['message' => 'No autorizado.'], 403);
         }
 
+        if (isset($_POST['allowed_hosts'])) {
+            $this->pending_hosts = $this->sanitize_hosts_list(wp_unslash($_POST['allowed_hosts']));
+        }
         $api_url = isset($_POST['api_url']) ? $this->sanitize_api_url(wp_unslash($_POST['api_url'])) : '';
         if (empty($api_url)) {
             wp_send_json_error(['message' => 'Ingrese una URL HTTPS válida antes de probar la conexión.']);
@@ -85,7 +88,13 @@ class Minfin_Social_Feed {
     }
 
     public function sanitize_settings($input) {
+        if (!current_user_can('manage_options')) {
+            return get_option(MINFIN_SOCIAL_FEED_OPTION, []);
+        }
+        $allowed_hosts = isset($input['allowed_hosts']) ? $this->sanitize_hosts_list($input['allowed_hosts']) : '';
+        $this->pending_hosts = $allowed_hosts;
         return [
+            'allowed_hosts' => $allowed_hosts,
             'api_url' => isset($input['api_url']) ? $this->sanitize_api_url($input['api_url']) : '',
             'cache_seconds' => isset($input['cache_seconds']) ? max(0, intval($input['cache_seconds'])) : 10,
             'floating_enabled' => !empty($input['floating_enabled']) ? '1' : '',
@@ -95,10 +104,55 @@ class Minfin_Social_Feed {
         ];
     }
 
+    /**
+     * Hosts internos permitidos explícitamente por el administrador del servidor
+     * (no editable desde el panel de WordPress, para evitar SSRF).
+     * Defínalos en wp-config.php:
+     *   define('MINFIN_SOCIAL_FEED_ALLOWED_HOSTS', 'api.interno.gob.gt,otro.interno.gob.gt');
+     * o mediante el filtro 'minfin_social_feed_allowed_hosts'.
+     */
+    private $pending_hosts = null;
+
+    /** Normaliza una lista de hosts (coma/espacio/salto de línea): solo nombres de host válidos, sin comodines. */
+    private function sanitize_hosts_list($raw) {
+        $items = preg_split('/[\s,]+/', strtolower((string) $raw), -1, PREG_SPLIT_NO_EMPTY);
+        $valid = array_filter($items, function ($h) {
+            return (bool) preg_match('/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/', $h);
+        });
+        return implode(',', array_unique($valid));
+    }
+
+    private function allowed_internal_hosts() {
+        $hosts = defined('MINFIN_SOCIAL_FEED_ALLOWED_HOSTS')
+            ? explode(',', (string) MINFIN_SOCIAL_FEED_ALLOWED_HOSTS)
+            : [];
+        $saved = $this->pending_hosts !== null
+            ? $this->pending_hosts
+            : (get_option(MINFIN_SOCIAL_FEED_OPTION, [])['allowed_hosts'] ?? '');
+        $hosts = array_merge($hosts, explode(',', (string) $saved));
+        $hosts = apply_filters('minfin_social_feed_allowed_hosts', $hosts);
+        return array_filter(array_map(function ($h) {
+            return strtolower(trim((string) $h));
+        }, (array) $hosts));
+    }
+
+    /** Host de la lista permitida: coincidencia exacta, solo HTTPS y puerto 443. */
+    private function is_allowed_internal_url($parts) {
+        $host = strtolower($parts['host'] ?? '');
+        return $host !== ''
+            && ($parts['scheme'] ?? '') === 'https'
+            && !isset($parts['user'], $parts['pass'])
+            && (!isset($parts['port']) || (int) $parts['port'] === 443)
+            && in_array($host, $this->allowed_internal_hosts(), true);
+    }
+
     /** Solo HTTPS público; se puede habilitar una URL local explícitamente para desarrollo. */
     private function sanitize_api_url($value) {
         $url = untrailingslashit(esc_url_raw((string) $value));
         $parts = wp_parse_url($url);
+        if ($url && is_array($parts) && $this->is_allowed_internal_url($parts)) {
+            return $url;
+        }
         $host = $parts['host'] ?? '';
         $is_local = in_array($host, ['localhost', '127.0.0.1', 'host.docker.internal'], true);
         $allow_local = (bool) apply_filters(
@@ -121,6 +175,12 @@ class Minfin_Social_Feed {
             'reject_unsafe_urls' => true,
         ];
         $parts = wp_parse_url($url);
+        // Host interno de la lista permitida: se omite solo el bloqueo de IP privada;
+        // TLS sigue verificándose y no se siguen redirecciones.
+        if (is_array($parts) && $this->is_allowed_internal_url($parts)) {
+            unset($args['reject_unsafe_urls']);
+            return wp_remote_get($url, $args);
+        }
         $is_local = in_array($parts['host'] ?? '', ['localhost', '127.0.0.1', 'host.docker.internal'], true);
         $allow_local = (bool) apply_filters(
             'minfin_social_feed_allow_local_api',
@@ -142,6 +202,7 @@ class Minfin_Social_Feed {
     private function get_settings() {
         $defaults = [
             'api_url' => '',
+            'allowed_hosts' => '',
             'cache_seconds' => 10,
             'floating_enabled' => '',
             'floating_feed' => '',
@@ -168,6 +229,15 @@ class Minfin_Social_Feed {
                             <button type="button" id="minfin-test-connection" class="button">Probar Conexión</button>
                             <span id="minfin-test-connection-result" style="margin-left:8px;"></span>
                             <p class="description">Use una URL HTTPS pública sin barra final. Para desarrollo local, habilite explícitamente el filtro <code>minfin_social_feed_allow_local_api</code>.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="minfin_allowed_hosts">Hosts internos permitidos</label></th>
+                        <td>
+                            <input type="text" id="minfin_allowed_hosts" name="<?php echo esc_attr(MINFIN_SOCIAL_FEED_OPTION); ?>[allowed_hosts]"
+                                value="<?php echo esc_attr($settings['allowed_hosts']); ?>" class="regular-text"
+                                placeholder="api.interno.gob.gt" />
+                            <p class="description">Solo si la API está en una red interna (IP privada). Indique el nombre de host exacto, sin <code>https://</code>, separado por comas si son varios. Se permite únicamente HTTPS en el puerto 443.</p>
                         </td>
                     </tr>
                     <tr>
@@ -238,6 +308,7 @@ class Minfin_Social_Feed {
                 body.set('action', 'minfin_test_connection');
                 body.set('nonce', '<?php echo esc_js(wp_create_nonce('minfin_test_connection')); ?>');
                 body.set('api_url', apiUrl);
+                body.set('allowed_hosts', document.getElementById('minfin_allowed_hosts').value);
 
                 fetch('<?php echo esc_url(admin_url('admin-ajax.php')); ?>', {
                     method: 'POST',
