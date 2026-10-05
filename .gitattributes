@@ -1,0 +1,7 @@
+# Los scripts que se ejecutan dentro de contenedores Linux (shebang #!/bin/sh)
+# deben conservar fin de línea Unix (LF) sin importar el core.autocrlf del
+# clon local. En Windows con autocrlf=true, un checkout normal convierte
+# estos archivos a CRLF y rompe el shebang dentro de la imagen
+# ("exec .../docker-entrypoint.sh: no such file or directory").
+*.sh text eol=lf
+Dockerfile text eol=lf
