@@ -69,12 +69,14 @@ export class UsersService {
     });
 
     await this.audit.log({
-      userEmail: user.email,
-      userRole: role.name,
+      userId: actor.id,
+      userEmail: actor.email,
+      userRole: actor.role,
       action: 'Creó usuario institucional',
       module: 'Configuración',
       entity: 'User',
       entityId: user.id,
+      details: { newUserEmail: user.email, newUserRole: role.name },
       result: 'Exitoso',
     });
 
