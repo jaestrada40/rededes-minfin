@@ -85,12 +85,29 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { email } });
   }
 
-  async findAll(): Promise<(SafeUser & { role: string })[]> {
+  async findAll(actor: { id: string; email: string; role: string }): Promise<
+    (Omit<SafeUser, 'mfaEnabled' | 'lastLoginAt'> & {
+      role: string;
+      mfaEnabled?: boolean;
+      lastLoginAt?: Date | null;
+    })[]
+  > {
     const users = await this.prisma.user.findMany({
       omit: { passwordHash: true },
       include: { role: { select: { name: true } } },
     });
-    return users.map(({ role, ...rest }) => ({ ...rest, role: role.name }));
+    // Un editor solo necesita el directorio para identificar quién es quién
+    // (nombre, correo, rol, estado) — mfaEnabled y lastLoginAt de otras
+    // cuentas (incluida la del super_admin) no son necesarios para su labor
+    // de curaduría de contenido y no deben exponerse a ese rol.
+    const canSeeSecurityDetails =
+      actor.role === 'super_admin' || actor.role === 'admin';
+    return users.map(({ role, mfaEnabled, lastLoginAt, ...rest }) => ({
+      ...rest,
+      role: role.name,
+      mfaEnabled: canSeeSecurityDetails ? mfaEnabled : undefined,
+      lastLoginAt: canSeeSecurityDetails ? lastLoginAt : undefined,
+    }));
   }
 
   async updateRole(

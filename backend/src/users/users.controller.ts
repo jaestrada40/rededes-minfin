@@ -37,8 +37,8 @@ export class UsersController {
 
   @Roles('super_admin', 'admin', 'editor')
   @Get()
-  findAll() {
-    return this.users.findAll();
+  findAll(@Req() req: AuthedRequest) {
+    return this.users.findAll(req.user);
   }
 
   // Cualquier usuario autenticado puede cambiar su propia contraseña —
