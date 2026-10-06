@@ -55,7 +55,7 @@ describe('FeedsService', () => {
     $transaction: jest.fn((ops: any[]) => Promise.all(ops)),
   };
   const auditMock = { log: jest.fn() };
-  const authMock = { verifyMfaCode: jest.fn().mockResolvedValue(true) };
+  const authMock = { verifyMfaCode: jest.fn().mockResolvedValue('valid') };
   const actor = { id: 'u1', email: 'a@minfin.gob.gt', role: 'admin' };
 
   beforeEach(() => {

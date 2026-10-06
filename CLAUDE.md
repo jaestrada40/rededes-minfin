@@ -39,7 +39,7 @@ docker-compose up -d   # postgres:16-alpine, db minfin_social, user/pass minfin/
 ```
 
 ### Required env vars
-- Root `.env` / `backend/.env`: `DATABASE_URL`, `PORT`, `CORS_ORIGIN` (backend **fails fast at boot** if `CORS_ORIGIN` is unset — see `main.ts`), `JWT_ACCESS_SECRET`, `JWT_ACCESS_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN_DAYS`, `MFA_ENCRYPTION_KEY` (32-byte hex, AES-256-GCM key for encrypting stored TOTP secrets — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`), `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`.
+- Root `.env` / `backend/.env`: `DATABASE_URL`, `PORT`, `CORS_ORIGIN` (backend **fails fast at boot** if `CORS_ORIGIN` is unset — see `main.ts`), `JWT_ACCESS_SECRET`, `MFA_ENCRYPTION_KEY` (32-byte hex, AES-256-GCM key for encrypting stored TOTP secrets — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`), `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`. Las sesiones tienen un límite absoluto de 30 minutos definido en el backend.
 - `frontend/.env`: `VITE_API_URL` (backend base URL). `GEMINI_API_KEY`/`APP_URL` are legacy AI-Studio-injected vars, not currently used by the app's own code paths.
 
 ## Architecture
@@ -47,7 +47,7 @@ docker-compose up -d   # postgres:16-alpine, db minfin_social, user/pass minfin/
 ### Backend module layout
 Standard Nest module-per-domain under `backend/src/`: `auth`, `users`, `roles`, `audit`, `feeds`, `portals`, `settings`, plus `prisma` (global `PrismaModule`/`PrismaService`) and `common` (shared guards/decorators/filters). Each feature module wires its own controller/service/DTOs; `app.module.ts` is the single place they're assembled.
 
-- **Auth**: `AuthModule` issues JWT access tokens + rotating refresh tokens (hashed, stored in `RefreshToken`, reuse triggers revocation) and supports TOTP MFA (`otplib`); TOTP secrets are stored AES-256-GCM encrypted (`MFA_ENCRYPTION_KEY`), never in plaintext. `isActive` is enforced on both login and refresh.
+- **Auth**: `AuthModule` issues JWT access tokens + rotating refresh tokens (hashed, stored in `RefreshToken`, reuse triggers revocation) with an absolute 30-minute session limit. It supports non-replayable TOTP MFA (`otplib`); TOTP secrets are stored AES-256-GCM encrypted (`MFA_ENCRYPTION_KEY`), never in plaintext. `isActive` is enforced on both login and refresh.
 - **AuthZ**: role-based via `@Roles(...)` decorator + `RolesGuard`, checked against `request.user.role` (populated by `JwtStrategy`/`JwtAuthGuard`). Roles/permissions are DB-backed (`Role`, `Permission`, `RolePermission`), seeded in `prisma/seed.ts`.
 - **Audit**: `AuditModule` persists an `AuditLog` row for sensitive actions across modules; the real actor id/role (not a placeholder) must be propagated into these calls from controllers/services.
 - **Feeds/Portals**: `Feed` groups ordered `SocialPost`s (`FeedPost` join table with `order`) and is assigned to one or more `WordPressPortal`s (`FeedPortal` join table). `feeds.service.ts` is the largest service — covers CRUD, post linking/reordering, duplication, and portal assignment.

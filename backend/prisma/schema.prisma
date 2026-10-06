@@ -54,6 +54,9 @@ model MfaSettings {
   user            User      @relation(fields: [userId], references: [id])
   secretEncrypted String
   verifiedAt      DateTime?
+  // Intervalo TOTP (de 30 segundos) aceptado más recientemente. Impide que
+  // un código válido sea reproducido dentro de su misma ventana de tiempo.
+  lastUsedTotpStep Int?
   backupCodesHash String[]
   createdAt       DateTime  @default(now())
 }
@@ -63,6 +66,7 @@ model RefreshToken {
   userId     String
   user       User      @relation(fields: [userId], references: [id])
   tokenHash  String
+  // Límite absoluto de la sesión original; la rotación no lo extiende.
   expiresAt  DateTime
   revokedAt  DateTime?
   ipAddress  String?

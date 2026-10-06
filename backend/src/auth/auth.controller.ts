@@ -26,14 +26,18 @@ export class AuthController {
 
   private sendTokens(
     response: Response,
-    tokens: { accessToken: string; refreshToken: string },
+    tokens: {
+      accessToken: string;
+      refreshToken: string;
+      sessionExpiresAt: Date;
+    },
   ) {
     response.cookie('minfin_refresh_token', tokens.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       path: '/auth',
-      maxAge: Number(process.env.JWT_REFRESH_EXPIRES_IN_DAYS ?? 7) * 86400_000,
+      maxAge: Math.max(0, tokens.sessionExpiresAt.getTime() - Date.now()),
     });
     return response.json({ accessToken: tokens.accessToken });
   }

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MINFIN Social Feed
  * Description: Muestra feeds de redes sociales institucionales del MINFIN administrados desde el Gestor Centralizado de Redes Sociales, vía shortcode.
- * Version: 1.0.0
+ * Version: 1.3.1
  * Author: DTI - Ministerio de Finanzas Públicas
  * Text Domain: minfin-social-feed
  */
@@ -11,12 +11,14 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MINFIN_SOCIAL_FEED_VERSION', '1.0.0');
+define('MINFIN_SOCIAL_FEED_VERSION', '1.3.1');
 define('MINFIN_SOCIAL_FEED_OPTION', 'minfin_social_feed_settings');
 
 class Minfin_Social_Feed {
 
     private $floating_rendered = false;
+    private $pending_ip = null;
+    private $temporary_resolve = null;
     private static $floating_instance = 0;
 
     public function __construct() {
@@ -27,6 +29,9 @@ class Minfin_Social_Feed {
         add_action('wp_enqueue_scripts', [$this, 'enqueue_styles']);
         add_action('wp_ajax_minfin_test_connection', [$this, 'ajax_test_connection']);
         add_action('wp_footer', [$this, 'maybe_render_floating_sitewide']);
+        // Resolución temporal y exacta para entornos donde el pod no tiene DNS
+        // del dominio público. No desactiva TLS ni aplica a otros hosts.
+        add_action('http_api_curl', [$this, 'apply_temporary_resolve'], 10, 3);
     }
 
     public function ajax_test_connection() {
@@ -39,6 +44,8 @@ class Minfin_Social_Feed {
         if (isset($_POST['allowed_hosts'])) {
             $this->pending_hosts = $this->sanitize_hosts_list(wp_unslash($_POST['allowed_hosts']));
         }
+        $this->pending_ip = isset($_POST['api_ip_override'])
+            ? $this->sanitize_ip(wp_unslash($_POST['api_ip_override'])) : '';
         $api_url = isset($_POST['api_url']) ? $this->sanitize_api_url(wp_unslash($_POST['api_url'])) : '';
         if (empty($api_url)) {
             wp_send_json_error(['message' => 'Ingrese una URL HTTPS válida antes de probar la conexión.']);
@@ -95,6 +102,7 @@ class Minfin_Social_Feed {
         $this->pending_hosts = $allowed_hosts;
         return [
             'allowed_hosts' => $allowed_hosts,
+            'api_ip_override' => isset($input['api_ip_override']) ? $this->sanitize_ip($input['api_ip_override']) : '',
             'api_url' => isset($input['api_url']) ? $this->sanitize_api_url($input['api_url']) : '',
             'cache_seconds' => isset($input['cache_seconds']) ? max(0, intval($input['cache_seconds'])) : 10,
             'floating_enabled' => !empty($input['floating_enabled']) ? '1' : '',
@@ -120,6 +128,21 @@ class Minfin_Social_Feed {
             return (bool) preg_match('/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/', $h);
         });
         return implode(',', array_unique($valid));
+    }
+
+    private function sanitize_ip($raw) {
+        $ip = trim((string) $raw);
+        return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '';
+    }
+
+    // WordPress invoca este hook como ($handle, $parsed_args, $url).
+    public function apply_temporary_resolve($handle, $args, $request_url) {
+        if (!$this->temporary_resolve || !defined('CURLOPT_RESOLVE')) return;
+        $parts = wp_parse_url($request_url);
+        if (($parts['host'] ?? '') !== $this->temporary_resolve['host']) return;
+        curl_setopt($handle, CURLOPT_RESOLVE, [
+            $this->temporary_resolve['host'] . ':443:' . $this->temporary_resolve['ip'],
+        ]);
     }
 
     private function allowed_internal_hosts() {
@@ -175,11 +198,17 @@ class Minfin_Social_Feed {
             'reject_unsafe_urls' => true,
         ];
         $parts = wp_parse_url($url);
+        $settings = $this->get_settings();
+        $override = $this->pending_ip !== null ? $this->pending_ip : ($settings['api_ip_override'] ?? '');
+        $this->temporary_resolve = ($override && !empty($parts['host']))
+            ? ['host' => $parts['host'], 'ip' => $override] : null;
         // Host interno de la lista permitida: se omite solo el bloqueo de IP privada;
         // TLS sigue verificándose y no se siguen redirecciones.
         if (is_array($parts) && $this->is_allowed_internal_url($parts)) {
             unset($args['reject_unsafe_urls']);
-            return wp_remote_get($url, $args);
+            $response = wp_remote_get($url, $args);
+            $this->temporary_resolve = null;
+            return $response;
         }
         $is_local = in_array($parts['host'] ?? '', ['localhost', '127.0.0.1', 'host.docker.internal'], true);
         $allow_local = (bool) apply_filters(
@@ -189,9 +218,13 @@ class Minfin_Social_Feed {
         // Solo en desarrollo explícito se permite el puente Docker→host.
         if ($allow_local && $is_local) {
             unset($args['reject_unsafe_urls']);
-            return wp_remote_get($url, $args);
+            $response = wp_remote_get($url, $args);
+            $this->temporary_resolve = null;
+            return $response;
         }
-        return wp_safe_remote_get($url, $args);
+        $response = wp_safe_remote_get($url, $args);
+        $this->temporary_resolve = null;
+        return $response;
     }
 
     private function sanitize_slug_list($raw) {
@@ -203,6 +236,7 @@ class Minfin_Social_Feed {
         $defaults = [
             'api_url' => '',
             'allowed_hosts' => '',
+            'api_ip_override' => '',
             'cache_seconds' => 10,
             'floating_enabled' => '',
             'floating_feed' => '',
@@ -229,6 +263,15 @@ class Minfin_Social_Feed {
                             <button type="button" id="minfin-test-connection" class="button">Probar Conexión</button>
                             <span id="minfin-test-connection-result" style="margin-left:8px;"></span>
                             <p class="description">Use una URL HTTPS pública sin barra final. Para desarrollo local, habilite explícitamente el filtro <code>minfin_social_feed_allow_local_api</code>.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="minfin_api_ip_override">IP temporal de la API</label></th>
+                        <td>
+                            <input type="text" id="minfin_api_ip_override" name="<?php echo esc_attr(MINFIN_SOCIAL_FEED_OPTION); ?>[api_ip_override]"
+                                value="<?php echo esc_attr($settings['api_ip_override']); ?>" class="regular-text"
+                                placeholder="172.26.2.19" />
+                            <p class="description">Opcional y temporal: fuerza la resolución de la URL anterior a esta IP desde el pod WordPress. Mantiene HTTPS y la validación del certificado. Elimínela cuando DNS esté corregido.</p>
                         </td>
                     </tr>
                     <tr>
@@ -309,6 +352,7 @@ class Minfin_Social_Feed {
                 body.set('nonce', '<?php echo esc_js(wp_create_nonce('minfin_test_connection')); ?>');
                 body.set('api_url', apiUrl);
                 body.set('allowed_hosts', document.getElementById('minfin_allowed_hosts').value);
+                body.set('api_ip_override', document.getElementById('minfin_api_ip_override').value);
 
                 fetch('<?php echo esc_url(admin_url('admin-ajax.php')); ?>', {
                     method: 'POST',
@@ -691,6 +735,9 @@ class Minfin_Social_Feed {
                 scrolling="no"
                 allow="encrypted-media"
             ></iframe>
+            <a class="minfin-social-feed__external-link" href="<?php echo esc_url($url); ?>" target="_blank" rel="noopener noreferrer">
+                Ver publicación en Facebook y comentar
+            </a>
         </div>
         <?php
         return ob_get_clean();
@@ -789,8 +836,8 @@ class Minfin_Social_Feed {
 
     private function get_inline_css() {
         return <<<CSS
-.minfin-social-feed { display: grid; gap: 16px; }
-.minfin-social-feed--grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.minfin-social-feed { display: grid; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; gap: 16px; }
+.minfin-social-feed--grid { grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); }
 .minfin-social-feed--list { grid-template-columns: 1fr; max-width: 640px; }
 .minfin-social-feed--single { grid-template-columns: 1fr; max-width: 520px; }
 .minfin-social-feed--carousel { grid-auto-flow: column; grid-auto-columns: minmax(280px, 1fr); overflow-x: auto; }
@@ -814,14 +861,22 @@ class Minfin_Social_Feed {
 .minfin-social-feed__x-embed .twitter-tweet { margin: 0 auto !important; }
 .minfin-social-feed__x-cta { display: inline-block; padding: 8px 16px; border: 1px solid #c7d4dc; border-radius: 999px; color: #006fd6; font: 700 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; }
 .minfin-social-feed__x-cta:hover { background: #f1f7fb; text-decoration: none; }
-.minfin-social-feed__fb-embed { display: flex; justify-content: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
-.minfin-social-feed__fb-embed iframe { width: 100%; max-width: 500px; height: clamp(420px, 72vw, 680px); }
+.minfin-social-feed__fb-embed { display: flex; flex-direction: column; align-items: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+.minfin-social-feed__fb-embed iframe { display: block; width: 100% !important; max-width: 500px !important; height: clamp(560px, 82vw, 820px); box-sizing: border-box; }
 .minfin-social-feed__li-embed { display: flex; justify-content: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
-.minfin-social-feed__li-embed iframe { width: 100%; max-width: 504px; height: clamp(380px, 68vw, 670px); }
+.minfin-social-feed__li-embed iframe { display: block; width: 100% !important; max-width: 504px !important; height: clamp(380px, 68vw, 670px); box-sizing: border-box; }
 .minfin-social-feed__ig-embed { display: flex; justify-content: center; }
 .minfin-social-feed__ig-embed .instagram-media { margin: 0 auto !important; }
+.minfin-social-feed__ig-embed .instagram-media { width: 100% !important; max-width: 540px !important; min-width: 0 !important; box-sizing: border-box; }
+.minfin-social-feed__external-link { display: block; margin: 8px 12px 12px; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 7px; color: #1d4ed8; background: #f8fafc; font: 600 12px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: center; text-decoration: none; }
+.minfin-social-feed__external-link:hover { background: #eff6ff; text-decoration: underline; }
 .minfin-social-feed-error { padding: 12px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 8px; font-size: 13px; }
 .minfin-social-feed--empty { padding: 24px; text-align: center; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; color: #64748b; }
+
+@media (max-width: 640px) {
+    .minfin-social-feed { grid-template-columns: 1fr; gap: 12px; }
+    .minfin-social-feed--list, .minfin-social-feed--single { max-width: 100%; }
+}
 
 .minfin-floating { position: fixed; bottom: 24px; z-index: 99998; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; align-items: flex-end; gap: 14px; }
 .minfin-floating--right { right: 24px; flex-direction: row-reverse; }

@@ -18,7 +18,11 @@ import { AttemptLimiterService } from './attempt-limiter.service';
 export interface TokenPair {
   accessToken: string;
   refreshToken: string;
+  /** Límite absoluto de la sesión, usado solo al configurar la cookie. */
+  sessionExpiresAt: Date;
 }
+
+export type MfaCodeValidation = 'valid' | 'invalid' | 'replayed';
 
 /**
  * Payload de los tokens internos de corta vida que emite signInternal
@@ -63,6 +67,8 @@ export type LoginResult =
 
 @Injectable()
 export class AuthService {
+  private static readonly SESSION_MAX_AGE_MS = 30 * 60 * 1000;
+  private static readonly TOTP_PERIOD_MS = 30 * 1000;
   // Hash señuelo con el mismo factor de costo (10) que los reales, sobre una
   // contraseña aleatoria que nadie conoce: se usa para que el login gaste el
   // mismo tiempo cuando el correo no existe. Nunca puede coincidir.
@@ -98,6 +104,36 @@ export class AuthService {
     });
   }
 
+  private currentTotpStep(): number {
+    return Math.floor(Date.now() / AuthService.TOTP_PERIOD_MS);
+  }
+
+  /**
+   * Valida y consume un código TOTP. La actualización condicional hace que
+   * solo una petición pueda usar un mismo intervalo, incluso con réplicas o
+   * solicitudes concurrentes.
+   */
+  private async consumeTotpCode(
+    userId: string,
+    encryptedSecret: string,
+    code: string,
+  ): Promise<MfaCodeValidation> {
+    if (!authenticator.check(code, this.decryptSecret(encryptedSecret))) {
+      return 'invalid';
+    }
+
+    const step = this.currentTotpStep();
+    const result = await this.prisma.mfaSettings.updateMany({
+      where: {
+        userId,
+        verifiedAt: { not: null },
+        OR: [{ lastUsedTotpStep: null }, { lastUsedTotpStep: { lt: step } }],
+      },
+      data: { lastUsedTotpStep: step },
+    });
+    return result.count === 1 ? 'valid' : 'replayed';
+  }
+
   // Format: <iv-hex>:<authTag-hex>:<ciphertext-hex>, AES-256-GCM with a random 12-byte IV per call.
   private encryptSecret(plain: string): string {
     const key = Buffer.from(process.env.MFA_ENCRYPTION_KEY!, 'hex');
@@ -131,8 +167,11 @@ export class AuthService {
   // autenticadas (p. ej. crear un feed) — a diferencia del login, aquí no se
   // emiten tokens nuevos, solo se confirma el código TOTP contra el secreto
   // ya configurado del usuario.
-  async verifyMfaCode(userId: string, code: string): Promise<boolean> {
-    if (!code) return false;
+  async verifyMfaCode(
+    userId: string,
+    code: string,
+  ): Promise<MfaCodeValidation> {
+    if (!code) return 'invalid';
 
     // Mismo límite que en el login: sin él, estas acciones sensibles serían
     // otro camino para adivinar el código TOTP por fuerza bruta.
@@ -143,18 +182,19 @@ export class AuthService {
       where: { userId },
     });
     // Un secreto todavía pendiente de verificar no sirve como segundo factor.
-    if (!settings?.verifiedAt) return false;
+    if (!settings?.verifiedAt) return 'invalid';
 
-    const valid = authenticator.check(
+    const validation = await this.consumeTotpCode(
+      userId,
+      settings.secretEncrypted,
       code,
-      this.decryptSecret(settings.secretEncrypted),
     );
-    if (valid) {
+    if (validation === 'valid') {
       await this.attempts.reset(attemptKey);
-    } else {
+    } else if (validation === 'invalid') {
       await this.attempts.recordFailure(attemptKey);
     }
-    return valid;
+    return validation;
   }
 
   async login(
@@ -331,7 +371,10 @@ export class AuthService {
     // El secreto ya está almacenado; aquí solo se marca como verificado.
     await this.prisma.mfaSettings.update({
       where: { userId: payload.userId },
-      data: { verifiedAt: new Date() },
+      data: {
+        verifiedAt: new Date(),
+        lastUsedTotpStep: this.currentTotpStep(),
+      },
     });
     await this.prisma.user.update({
       where: { id: payload.userId },
@@ -362,7 +405,11 @@ export class AuthService {
       where: { userId: payload.userId },
     });
     const validCode = settings?.verifiedAt
-      ? authenticator.check(code, this.decryptSecret(settings.secretEncrypted))
+      ? await this.consumeTotpCode(
+          payload.userId,
+          settings.secretEncrypted,
+          code,
+        )
       : false;
 
     if (!validCode) {
@@ -389,7 +436,11 @@ export class AuthService {
     return this.issueTokens(payload.userId, ip);
   }
 
-  private async issueTokens(userId: string, ip?: string): Promise<TokenPair> {
+  private async issueTokens(
+    userId: string,
+    ip?: string,
+    sessionExpiresAt = new Date(Date.now() + AuthService.SESSION_MAX_AGE_MS),
+  ): Promise<TokenPair> {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       include: { role: true },
@@ -399,11 +450,19 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
+    const remainingSeconds = Math.floor(
+      (sessionExpiresAt.getTime() - Date.now()) / 1000,
+    );
+    if (remainingSeconds <= 0) {
+      throw new UnauthorizedException('Sesión expirada. Inicie sesión nuevamente.');
+    }
+
     const accessToken = this.jwt.sign(
       { sub: user.id, email: user.email, role: user.role.name },
       {
         secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
+        // El JWT no puede vivir más allá del límite absoluto de la sesión.
+        expiresIn: remainingSeconds,
       } as Parameters<JwtService['sign']>[1],
     );
 
@@ -412,11 +471,13 @@ export class AuthService {
       .createHash('sha256')
       .update(rawRefreshToken)
       .digest('hex');
-    const days = Number(process.env.JWT_REFRESH_EXPIRES_IN_DAYS ?? 7);
-    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-
     await this.prisma.refreshToken.create({
-      data: { userId: user.id, tokenHash, expiresAt, ipAddress: ip },
+      data: {
+        userId: user.id,
+        tokenHash,
+        expiresAt: sessionExpiresAt,
+        ipAddress: ip,
+      },
     });
 
     await this.audit.log({
@@ -429,7 +490,7 @@ export class AuthService {
       ipAddress: ip,
     });
 
-    return { accessToken, refreshToken: rawRefreshToken };
+    return { accessToken, refreshToken: rawRefreshToken, sessionExpiresAt };
   }
 
   async refresh(refreshToken: string, ip?: string): Promise<TokenPair> {
@@ -477,7 +538,9 @@ export class AuthService {
     if (!stored)
       throw new UnauthorizedException('Refresh token inválido o expirado');
 
-    return this.issueTokens(stored.userId, ip);
+    // Conserva la expiración de la sesión original: refrescar no concede otros
+    // 30 minutos ni permite que un JWT supere ese límite.
+    return this.issueTokens(stored.userId, ip, stored.expiresAt);
   }
 
   async logout(refreshToken: string): Promise<void> {

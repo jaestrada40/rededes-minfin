@@ -8,5 +8,3 @@ data:
   PORT: "4000"
   # Origen exacto (protocolo + host, sin slash final) del frontend admin.
   CORS_ORIGIN: "https://minfin-frontend-portal-redes-minfin.apps.ocp4.mfpweb.local"
-  JWT_ACCESS_EXPIRES_IN: "15m"
-  JWT_REFRESH_EXPIRES_IN_DAYS: "7"

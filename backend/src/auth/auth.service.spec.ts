@@ -48,6 +48,7 @@ describe('AuthService', () => {
       update: jest.fn().mockResolvedValue({}),
       upsert: jest.fn().mockResolvedValue({}),
       findUnique: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     user: {
       update: jest.fn().mockResolvedValue({}),
@@ -201,12 +202,51 @@ describe('AuthService', () => {
     });
 
     for (let i = 0; i < 5; i++) {
-      expect(await service.verifyMfaCode('u-stepup', '000000')).toBe(false);
+      expect(await service.verifyMfaCode('u-stepup', '000000')).toBe('invalid');
     }
 
     await expect(
       service.verifyMfaCode('u-stepup', '000000'),
     ).rejects.toMatchObject({ status: 429 });
+  });
+
+  it('consumes a valid TOTP code so it cannot be replayed', async () => {
+    const secret = authenticator.generateSecret();
+    prismaMock.mfaSettings.findUnique = jest.fn().mockResolvedValue({
+      secretEncrypted: (service as any).encryptSecret(secret),
+      verifiedAt: new Date(),
+    });
+    prismaMock.mfaSettings.updateMany = jest
+      .fn()
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+    const code = authenticator.generate(secret);
+
+    expect(await service.verifyMfaCode('u-stepup', code)).toBe('valid');
+    expect(await service.verifyMfaCode('u-stepup', code)).toBe('replayed');
+  });
+
+  it('sets an absolute 30-minute limit for both access and refresh tokens', async () => {
+    jest.useFakeTimers();
+    const now = new Date('2026-10-06T12:00:00.000Z');
+    jest.setSystemTime(now);
+
+    const tokens = await (service as any).issueTokens('u1');
+    const claims = (service as any).jwt.decode(tokens.accessToken);
+
+    expect(claims.exp - claims.iat).toBe(30 * 60);
+    expect(tokens.sessionExpiresAt).toEqual(
+      new Date(now.getTime() + 30 * 60 * 1000),
+    );
+    expect(prismaMock.refreshToken.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          expiresAt: new Date(now.getTime() + 30 * 60 * 1000),
+        }),
+      }),
+    );
+
+    jest.useRealTimers();
   });
 
   it('does not skip the bcrypt comparison when the email is unknown', async () => {

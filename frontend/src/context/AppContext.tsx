@@ -97,7 +97,7 @@ interface AppContextType {
   // MFA step-up confirmation for sensitive post actions. Resolves to the
   // entered code, '' if the user has no MFA configured (nothing to ask), or
   // null if the user cancelled.
-  requestMfaConfirm: (message: string, options?: { title?: string; confirmLabel?: string }) => Promise<string | null>;
+  requestMfaConfirm: (message: string, options?: { title?: string; confirmLabel?: string; validateCode?: (code: string) => Promise<string | null> }) => Promise<string | null>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -299,7 +299,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // publicaciones (agregar, editar, quitar de un feed, borrar definitivo).
   // Devuelve null si el usuario cancela, o si no tiene MFA configurado
   // (en cuyo caso ni siquiera se muestra el diálogo).
-  const [mfaConfirmState, setMfaConfirmState] = useState<{ message: string; title?: string; confirmLabel?: string } | null>(null);
+  const [mfaConfirmState, setMfaConfirmState] = useState<{ message: string; title?: string; confirmLabel?: string; validateCode?: (code: string) => Promise<string | null> } | null>(null);
   const mfaConfirmResolveRef = useRef<((code: string | null) => void) | null>(null);
 
   const requestMfaConfirm = useCallback(
@@ -512,7 +512,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const createFeed = async (feedData: Partial<Feed>, mfaCode?: string) => {
-    const { assignedPortalIds, ...rest } = feedData;
+    // CreateFeedModal entrega el MFA dentro de feedData; conservarlo aquí
+    // evita que se pierda antes de construir la petición al backend.
+    const {
+      assignedPortalIds,
+      mfaCode: embeddedMfaCode,
+      ...rest
+    } = feedData as Partial<Feed> & { mfaCode?: string };
     const created = await feedsApi.createFeed({
       slug: rest.slug,
       name: rest.name || 'Nuevo Feed Institucional',
@@ -524,7 +530,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showMetrics: rest.showMetrics,
       showMedia: rest.showMedia,
       autoRefreshMinutes: rest.autoRefreshMinutes,
-      mfaCode
+      mfaCode: mfaCode ?? embeddedMfaCode
     });
     if (assignedPortalIds && assignedPortalIds.length > 0) {
       await portalsApi.assignFeedToPortals(created.id, assignedPortalIds);
@@ -753,6 +759,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           title={mfaConfirmState.title}
           confirmLabel={mfaConfirmState.confirmLabel}
           onCancel={() => resolveMfaConfirm(null)}
+          validateCode={mfaConfirmState.validateCode}
           onConfirm={(code) => resolveMfaConfirm(code)}
         />
       )}
@@ -793,15 +800,36 @@ function MfaConfirmDialog({
   title,
   confirmLabel,
   onCancel,
-  onConfirm
+  onConfirm,
+  validateCode,
 }: {
   message: string;
   title?: string;
   confirmLabel?: string;
   onCancel: () => void;
   onConfirm: (code: string) => void;
+  validateCode?: (code: string) => Promise<string | null>;
 }) {
   const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleConfirm = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const validationError = validateCode ? await validateCode(code.trim()) : null;
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+      onConfirm(code.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo validar el código MFA.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
@@ -821,6 +849,7 @@ function MfaConfirmDialog({
           placeholder="000000"
           className="w-full text-center tracking-[0.3em] text-lg font-mono border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0072ce]"
         />
+        {error && <p role="alert" className="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">{error}</p>}
         <div className="flex items-center justify-end gap-2 pt-1">
           <button
             type="button"
@@ -831,8 +860,8 @@ function MfaConfirmDialog({
           </button>
           <button
             type="button"
-            disabled={code.trim().length === 0}
-            onClick={() => onConfirm(code.trim())}
+            onClick={handleConfirm}
+            disabled={code.trim().length === 0 || submitting}
             className="px-4 py-2 bg-[#003876] hover:bg-[#002d5e] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold text-xs cursor-pointer"
           >
             {confirmLabel || 'Confirmar'}

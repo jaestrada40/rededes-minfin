@@ -150,22 +150,47 @@ export const FeedDetailView: React.FC<FeedDetailViewProps> = ({ onOpenAssignModa
 
     const cleanedUrlOrId = extractPostUrl(inputUrlOrId);
 
+    let validatedDuringDialog = false;
     const mfaCode = await requestMfaConfirm('Ingrese su código MFA actual para confirmar el registro de esta publicación.', {
       title: 'Confirmación MFA requerida',
-      confirmLabel: 'Agregar publicación'
+      confirmLabel: 'Agregar publicación',
+      validateCode: async (code) => {
+        try {
+          const result = await addPost(currentFeed.id, {
+            urlOrId: cleanedUrlOrId,
+            network: activeNetworkTab,
+            mfaCode: code
+          });
+          if (!result.success) return result.message;
+          validatedDuringDialog = true;
+          return null;
+        } catch (err) {
+          return err instanceof Error ? err.message : 'No se pudo agregar la publicación.';
+        }
+      }
     });
     if (mfaCode === null) return;
-
-    const result = await addPost(currentFeed.id, {
-      urlOrId: cleanedUrlOrId,
-      network: activeNetworkTab,
-      mfaCode: mfaCode || undefined
-    });
-
-    if (!result.success) {
-      setErrorMessage(result.message);
-    } else {
+    if (validatedDuringDialog) {
       setInputUrlOrId('');
+      return;
+    }
+
+    try {
+      const result = await addPost(currentFeed.id, {
+        urlOrId: cleanedUrlOrId,
+        network: activeNetworkTab,
+        mfaCode: mfaCode || undefined
+      });
+
+      if (!result.success) {
+        setErrorMessage(result.message);
+      } else {
+        setInputUrlOrId('');
+      }
+    } catch (err) {
+      // Los errores 401 del step-up MFA se lanzan desde apiFetch; conservar el
+      // formulario abierto permite mostrar "código ya utilizado" y reintentar.
+      setErrorMessage(err instanceof Error ? err.message : 'No se pudo agregar la publicación.');
     }
   };
 

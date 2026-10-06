@@ -332,8 +332,8 @@ export class FeedsService {
     });
     if (!actorUser?.mfaEnabled) return;
 
-    const validCode = await this.auth.verifyMfaCode(actor.id, mfaCode ?? '');
-    if (!validCode) {
+    const validation = await this.auth.verifyMfaCode(actor.id, mfaCode ?? '');
+    if (validation !== 'valid') {
       await this.audit.log({
         userId: actor.id,
         userEmail: actor.email,
@@ -344,7 +344,11 @@ export class FeedsService {
         entityId,
         result: 'Fallido',
       });
-      throw new UnauthorizedException('Código MFA inválido o faltante.');
+      throw new UnauthorizedException(
+        validation === 'replayed'
+          ? 'Este código MFA ya fue utilizado. Espere al siguiente código e inténtelo de nuevo.'
+          : 'Código MFA inválido o faltante.',
+      );
     }
   }
 

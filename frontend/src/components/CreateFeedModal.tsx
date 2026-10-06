@@ -28,6 +28,7 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
   const [showMedia, setShowMedia] = useState<boolean>(true);
   const [autoSlug, setAutoSlug] = useState<boolean>(true);
   const [mfaCode, setMfaCode] = useState('');
+  const [formError, setFormError] = useState('');
 
   useEffect(() => {
     if (editFeed) {
@@ -56,6 +57,7 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
       setAutoSlug(true);
     }
     setMfaCode('');
+    setFormError('');
   }, [editFeed, isOpen]);
 
   const handleNameChange = (val: string) => {
@@ -89,18 +91,22 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError('');
 
     if (!name.trim()) {
+      setFormError('Ingrese un nombre para el feed antes de continuar.');
       showNotification('Por favor ingrese un nombre para el feed.', 'error');
       return;
     }
 
     if (!slug.trim()) {
+      setFormError('Ingrese un identificador (slug) válido para el shortcode.');
       showNotification('Por favor ingrese un identificador (slug) válido para el shortcode.', 'error');
       return;
     }
 
     if (!editFeed && user.mfaEnabled && !mfaCode.trim()) {
+      setFormError('Ingrese el código MFA actual de 6 dígitos para crear el feed.');
       showNotification('Ingrese su código MFA actual para confirmar la creación del feed.', 'error');
       return;
     }
@@ -148,7 +154,9 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
       }
       onClose();
     } catch (err) {
-      showNotification(err instanceof Error ? err.message : 'No se pudo guardar el feed.', 'error');
+      const message = err instanceof Error ? err.message : 'No se pudo guardar el feed.';
+      setFormError(message);
+      showNotification(message, 'error');
     } finally {
       setSubmitting(false);
     }
@@ -334,7 +342,14 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
                 placeholder="Código de 6 dígitos de su app de autenticación"
                 className="w-full bg-white border border-amber-300 rounded-lg p-2.5 text-slate-800 font-mono tracking-widest focus:outline-none focus:border-amber-500"
               />
-              <p className="text-amber-700">Crear un feed distribuye contenido en los portales institucionales; confirme su identidad con el código actual de su app de autenticación.</p>
+              <p className="text-amber-700">Crear un feed distribuye contenido en los portales institucionales; confirme su identidad con un código nuevo de su app de autenticación. Cada código se acepta una sola vez.</p>
+            </div>
+          )}
+
+          {formError && (
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{formError}</span>
             </div>
           )}
 
