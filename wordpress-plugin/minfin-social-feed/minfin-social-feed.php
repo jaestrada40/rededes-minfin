@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MINFIN Social Feed
  * Description: Muestra feeds de redes sociales institucionales del MINFIN administrados desde el Gestor Centralizado de Redes Sociales, vía shortcode.
- * Version: 1.3.1
+ * Version: 1.5.9
  * Author: DTI - Ministerio de Finanzas Públicas
  * Text Domain: minfin-social-feed
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MINFIN_SOCIAL_FEED_VERSION', '1.3.1');
+define('MINFIN_SOCIAL_FEED_VERSION', '1.5.9');
 define('MINFIN_SOCIAL_FEED_OPTION', 'minfin_social_feed_settings');
 
 class Minfin_Social_Feed {
@@ -28,6 +28,8 @@ class Minfin_Social_Feed {
         add_shortcode('minfin_social_floating', [$this, 'render_floating_shortcode']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_styles']);
         add_action('wp_ajax_minfin_test_connection', [$this, 'ajax_test_connection']);
+        add_action('wp_ajax_minfin_load_feed', [$this, 'ajax_load_feed']);
+        add_action('wp_ajax_nopriv_minfin_load_feed', [$this, 'ajax_load_feed']);
         add_action('wp_footer', [$this, 'maybe_render_floating_sitewide']);
         // Resolución temporal y exacta para entornos donde el pod no tiene DNS
         // del dominio público. No desactiva TLS ni aplica a otros hosts.
@@ -399,21 +401,30 @@ class Minfin_Social_Feed {
         }
 
         $feed = $this->fetch_feed($slug, $settings);
-        if (is_wp_error($feed)) {
-            return $this->render_error('No se pudo cargar el feed: ' . esc_html($feed->get_error_message()));
-        }
-        if (empty($feed)) {
-            return $this->render_error('El feed solicitado no existe o fue eliminado.');
-        }
-
+        if (is_wp_error($feed)) return $this->render_error('No se pudo cargar el feed: ' . esc_html($feed->get_error_message()));
+        if (empty($feed)) return $this->render_error('El feed solicitado no existe o fue eliminado.');
         $layout = !empty($atts['layout']) ? sanitize_key($atts['layout']) : $feed['layoutDefault'];
         $limit = is_numeric($atts['limit']) ? intval($atts['limit']) : intval($feed['maxItemsDefault']);
         $show_metrics = $atts['metrics'] !== '' ? filter_var($atts['metrics'], FILTER_VALIDATE_BOOLEAN) : $feed['showMetrics'];
         $show_media = $atts['media'] !== '' ? filter_var($atts['media'], FILTER_VALIDATE_BOOLEAN) : $feed['showMedia'];
+        return $this->render_feed($feed, array_slice($feed['posts'], 0, max(1, $limit)), $layout, $show_metrics, $show_media);
+    }
 
-        $posts = array_slice($feed['posts'], 0, max(1, $limit));
-
-        return $this->render_feed($feed, $posts, $layout, $show_metrics, $show_media);
+    public function ajax_load_feed() {
+        check_ajax_referer('minfin_feed_render', 'nonce');
+        $slug = sanitize_title(wp_unslash($_POST['slug'] ?? ''));
+        $settings = $this->get_settings();
+        if (!$slug || empty($settings['api_url'])) wp_send_json_error(['message' => 'Feed no configurado.'], 400);
+        $feed = $this->fetch_feed($slug, $settings);
+        if (is_wp_error($feed)) wp_send_json_error(['message' => 'No se pudo cargar el feed: ' . $feed->get_error_message()], 502);
+        if (empty($feed)) wp_send_json_error(['message' => 'El feed solicitado no existe o fue eliminado.'], 404);
+        $layout = !empty($_POST['layout']) ? sanitize_key(wp_unslash($_POST['layout'])) : $feed['layoutDefault'];
+        $limit = is_numeric($_POST['limit'] ?? '') ? intval($_POST['limit']) : intval($feed['maxItemsDefault']);
+        $metrics = $_POST['metrics'] ?? '';
+        $media = $_POST['media'] ?? '';
+        $show_metrics = $metrics !== '' ? filter_var($metrics, FILTER_VALIDATE_BOOLEAN) : $feed['showMetrics'];
+        $show_media = $media !== '' ? filter_var($media, FILTER_VALIDATE_BOOLEAN) : $feed['showMedia'];
+        wp_send_json_success(['html' => $this->render_feed($feed, array_slice($feed['posts'], 0, max(1, $limit)), $layout, $show_metrics, $show_media)]);
     }
 
     public function render_floating_shortcode($atts) {
@@ -521,6 +532,7 @@ class Minfin_Social_Feed {
                     <button type="button" class="minfin-floating__close" data-minfin-close aria-label="Cerrar">&times;</button>
                 </div>
                 <div class="minfin-floating__panel-body">
+                    <div class="minfin-floating-skeleton" aria-live="polite"><span class="minfin-social-feed-skeleton__spinner"></span></div>
                     <?php foreach ($groups as $network => $posts): $meta = $this->get_network_meta($network); ?>
                         <div class="minfin-floating__group" data-minfin-group="<?php echo esc_attr($network); ?>"
                             data-minfin-label="<?php echo esc_attr($meta['label']); ?>" hidden>
@@ -574,6 +586,7 @@ class Minfin_Social_Feed {
             var title = root.querySelector('.minfin-floating__panel-title');
             var icon = root.querySelector('.minfin-floating__panel-icon');
             var groups = root.querySelectorAll('[data-minfin-group]');
+            var skeleton = root.querySelector('.minfin-floating-skeleton');
             var openNetwork = null;
 
             function openGroup(network) {
@@ -586,12 +599,18 @@ class Minfin_Social_Feed {
                 icon.innerHTML = btn ? btn.querySelector('svg').outerHTML : '';
                 icon.style.color = btn ? getComputedStyle(btn).getPropertyValue('--minfin-brand') : '';
                 panel.hidden = false;
+                if (skeleton) skeleton.hidden = false;
                 requestAnimationFrame(function () { panel.classList.add('is-open'); });
                 openNetwork = network;
                 if (network === 'x' && window.minfinLoadTwitterWidgets) window.minfinLoadTwitterWidgets();
                 if (network === 'instagram' && window.minfinLoadInstagramEmbeds) {
                     window.minfinLoadInstagramEmbeds();
                 }
+                // El contenido ya está en el DOM; el indicador solo acompaña la
+                // transición de apertura y no debe quedarse visible por tiempo fijo.
+                window.requestAnimationFrame(function () {
+                    if (skeleton) skeleton.hidden = true;
+                });
             }
 
             function closePanel() {
@@ -710,9 +729,33 @@ class Minfin_Social_Feed {
         ob_start();
         ?>
         <div class="minfin-social-feed__x-embed">
+            <div class="minfin-social-feed__embed-skeleton" aria-hidden="true"><span class="minfin-social-feed-skeleton__spinner"></span></div>
             <blockquote class="twitter-tweet" data-lang="es" data-dnt="true"><a href="<?php echo esc_url($url); ?>"></a></blockquote>
             <a class="minfin-social-feed__x-cta" href="<?php echo esc_url($url); ?>" target="_blank" rel="noopener noreferrer">Ver publicación en X</a>
         </div>
+        <script>
+        (function () {
+            var embed = document.currentScript.previousElementSibling;
+            if (!embed) return;
+            var reveal = function () {
+                var skeleton = embed.querySelector('.minfin-social-feed__embed-skeleton');
+                var iframe = embed.querySelector('iframe');
+                if (!skeleton || !iframe || iframe.__minfinBound) return;
+                iframe.__minfinBound = true;
+                // El evento load se dispara antes de que X/Instagram dibujen el contenido: se espera a que el iframe tenga altura real.
+                var done = function () { if (iframe.getBoundingClientRect().height > 120) { skeleton.hidden = true; if (ro) ro.disconnect(); } };
+                var ro = window.ResizeObserver ? new ResizeObserver(done) : null;
+                if (ro) ro.observe(iframe); else iframe.addEventListener('load', function () { window.setTimeout(function () { skeleton.hidden = true; }, 1500); }, { once: true });
+                done();
+            };
+            var observer = new MutationObserver(reveal);
+            observer.observe(embed, { childList: true, subtree: true });
+            window.setTimeout(function () {
+                var skeleton = embed.querySelector('.minfin-social-feed__embed-skeleton');
+                if (skeleton) skeleton.hidden = true;
+            }, 20000);
+        })();
+        </script>
         <?php
         return ob_get_clean();
     }
@@ -727,6 +770,9 @@ class Minfin_Social_Feed {
         ob_start();
         ?>
         <div class="minfin-social-feed__fb-embed">
+            <div class="minfin-social-feed__embed-skeleton" aria-hidden="true">
+                <span class="minfin-social-feed-skeleton__spinner"></span>
+            </div>
             <iframe
                 src="<?php echo esc_url($embed_url); ?>"
                 title="Publicación de Facebook"
@@ -735,6 +781,16 @@ class Minfin_Social_Feed {
                 scrolling="no"
                 allow="encrypted-media"
             ></iframe>
+            <script>
+            (function () {
+                var iframe = document.currentScript.previousElementSibling;
+                if (!iframe) return;
+                iframe.addEventListener('load', function () {
+                    var skeleton = iframe.parentElement.querySelector('.minfin-social-feed__embed-skeleton');
+                    if (skeleton) skeleton.hidden = true;
+                }, { once: true });
+            })();
+            </script>
             <a class="minfin-social-feed__external-link" href="<?php echo esc_url($url); ?>" target="_blank" rel="noopener noreferrer">
                 Ver publicación en Facebook y comentar
             </a>
@@ -752,10 +808,34 @@ class Minfin_Social_Feed {
         ob_start();
         ?>
         <div class="minfin-social-feed__ig-embed">
+            <div class="minfin-social-feed__embed-skeleton" aria-hidden="true"><span class="minfin-social-feed-skeleton__spinner"></span></div>
             <blockquote class="instagram-media" data-instgrm-permalink="<?php echo esc_url($url); ?>" data-instgrm-version="14" style="margin:0;">
                 <a href="<?php echo esc_url($url); ?>"></a>
             </blockquote>
         </div>
+        <script>
+        (function () {
+            var embed = document.currentScript.previousElementSibling;
+            if (!embed) return;
+            var reveal = function () {
+                var skeleton = embed.querySelector('.minfin-social-feed__embed-skeleton');
+                var iframe = embed.querySelector('iframe');
+                if (!skeleton || !iframe || iframe.__minfinBound) return;
+                iframe.__minfinBound = true;
+                // El evento load se dispara antes de que X/Instagram dibujen el contenido: se espera a que el iframe tenga altura real.
+                var done = function () { if (iframe.getBoundingClientRect().height > 120) { skeleton.hidden = true; if (ro) ro.disconnect(); } };
+                var ro = window.ResizeObserver ? new ResizeObserver(done) : null;
+                if (ro) ro.observe(iframe); else iframe.addEventListener('load', function () { window.setTimeout(function () { skeleton.hidden = true; }, 1500); }, { once: true });
+                done();
+            };
+            var observer = new MutationObserver(reveal);
+            observer.observe(embed, { childList: true, subtree: true });
+            window.setTimeout(function () {
+                var skeleton = embed.querySelector('.minfin-social-feed__embed-skeleton');
+                if (skeleton) skeleton.hidden = true;
+            }, 20000);
+        })();
+        </script>
         <?php
         return ob_get_clean();
     }
@@ -770,6 +850,7 @@ class Minfin_Social_Feed {
         ob_start();
         ?>
         <div class="minfin-social-feed__li-embed">
+            <div class="minfin-social-feed__embed-skeleton" aria-hidden="true"><span class="minfin-social-feed-skeleton__spinner"></span></div>
             <iframe
                 src="<?php echo esc_url($url); ?>"
                 title="Publicación de LinkedIn"
@@ -777,6 +858,16 @@ class Minfin_Social_Feed {
                 style="border:none;"
                 allowfullscreen
             ></iframe>
+            <script>
+            (function () {
+                var iframe = document.currentScript.previousElementSibling;
+                if (!iframe) return;
+                iframe.addEventListener('load', function () {
+                    var skeleton = iframe.parentElement.querySelector('.minfin-social-feed__embed-skeleton');
+                    if (skeleton) skeleton.hidden = true;
+                }, { once: true });
+            })();
+            </script>
         </div>
         <?php
         return ob_get_clean();
@@ -837,7 +928,25 @@ class Minfin_Social_Feed {
     private function get_inline_css() {
         return <<<CSS
 .minfin-social-feed { display: grid; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; gap: 16px; }
-.minfin-social-feed--grid { grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); }
+.minfin-social-feed-loader { width: 100%; min-height: 260px; }
+.minfin-social-feed-skeleton-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 16px; width: 100%; }
+.minfin-social-feed-skeleton-grid--list, .minfin-social-feed-skeleton-grid--single { grid-template-columns: 1fr; max-width: 640px; }
+.minfin-social-feed-skeleton-grid--list .minfin-social-feed-skeleton-card:not(:first-child), .minfin-social-feed-skeleton-grid--single .minfin-social-feed-skeleton-card:not(:first-child) { display: none; }
+.minfin-social-feed-skeleton-card { min-height: 340px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: linear-gradient(100deg, #f8fafc 30%, #eef2f7 45%, #f8fafc 60%); background-size: 200% 100%; animation: minfin-skeleton 1.4s ease-in-out infinite; }
+.minfin-social-feed-skeleton-card__head { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; }
+.minfin-social-feed-skeleton-card__head span { width: 38px; height: 38px; border-radius: 50%; background: #dbe4ee; }
+.minfin-social-feed-skeleton-card__head i { width: 48%; height: 12px; border-radius: 5px; background: #dbe4ee; }
+.minfin-social-feed-skeleton-card__media { height: 190px; border-radius: 7px; background: #e2e8f0; }
+.minfin-social-feed-skeleton-card__line { height: 11px; width: 92%; margin-top: 16px; border-radius: 5px; background: #dbe4ee; }
+.minfin-social-feed-skeleton-card__line--short { width: 62%; margin-top: 9px; }
+.minfin-social-feed-skeleton-card strong { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 18px; color: #64748b; font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.minfin-social-feed-skeleton__spinner { width: 18px; height: 18px; border: 3px solid #cbd5e1; border-top-color: #003876; border-radius: 50%; animation: minfin-spin .8s linear infinite; }
+.minfin-floating-skeleton { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 120px; color: #64748b; font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.minfin-floating-skeleton[hidden] { display: none !important; }
+@keyframes minfin-skeleton { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@keyframes minfin-spin { to { transform: rotate(360deg); } }
+.minfin-social-feed--grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; justify-items: stretch; justify-content: start; grid-auto-flow: row; grid-auto-columns: auto; }
+.minfin-social-feed--grid > * { min-width: 0; width: 100%; max-width: none; justify-self: stretch; }
 .minfin-social-feed--list { grid-template-columns: 1fr; max-width: 640px; }
 .minfin-social-feed--single { grid-template-columns: 1fr; max-width: 520px; }
 .minfin-social-feed--carousel { grid-auto-flow: column; grid-auto-columns: minmax(280px, 1fr); overflow-x: auto; }
@@ -857,25 +966,33 @@ class Minfin_Social_Feed {
 .minfin-social-feed__footer a:hover { text-decoration: underline; }
 .minfin-social-feed__stats { display: flex; gap: 10px; color: #475569; font-family: monospace; }
 .minfin-social-feed__brand { color: #94a3b8; font-family: monospace; }
-.minfin-social-feed__x-embed { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.minfin-social-feed__x-embed { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 360px; }
 .minfin-social-feed__x-embed .twitter-tweet { margin: 0 auto !important; }
 .minfin-social-feed__x-cta { display: inline-block; padding: 8px 16px; border: 1px solid #c7d4dc; border-radius: 999px; color: #006fd6; font: 700 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; }
 .minfin-social-feed__x-cta:hover { background: #f1f7fb; text-decoration: none; }
-.minfin-social-feed__fb-embed { display: flex; flex-direction: column; align-items: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
-.minfin-social-feed__fb-embed iframe { display: block; width: 100% !important; max-width: 500px !important; height: clamp(560px, 82vw, 820px); box-sizing: border-box; }
-.minfin-social-feed__li-embed { display: flex; justify-content: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+.minfin-social-feed__fb-embed { position: relative; display: flex; flex-direction: column; align-items: center; justify-self: stretch; min-width: 0; width: 100%; height: 100%; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+.minfin-social-feed__fb-embed iframe { display: block; width: min(100%, 500px) !important; max-width: 500px !important; height: clamp(560px, 82vw, 820px); margin-inline: auto; box-sizing: border-box; }
+.minfin-social-feed__embed-skeleton { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; min-height: 180px; background: linear-gradient(100deg, #f8fafc 30%, #eef2f7 45%, #f8fafc 60%); background-size: 200% 100%; animation: minfin-skeleton 1.4s ease-in-out infinite; pointer-events: none; }
+.minfin-social-feed__embed-skeleton[hidden] { display: none !important; }
+.minfin-social-feed__ig-embed .minfin-social-feed__embed-skeleton { right: auto; width: min(100%, 540px); border: 1px solid #e2e8f0; border-radius: 12px; box-sizing: border-box; }
+.minfin-social-feed__li-embed { position: relative; display: flex; justify-content: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
 .minfin-social-feed__li-embed iframe { display: block; width: 100% !important; max-width: 504px !important; height: clamp(380px, 68vw, 670px); box-sizing: border-box; }
-.minfin-social-feed__ig-embed { display: flex; justify-content: center; }
-.minfin-social-feed__ig-embed .instagram-media { margin: 0 auto !important; }
+.minfin-social-feed__ig-embed { position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; width: 100%; min-height: 560px; }
+.minfin-social-feed__ig-embed .instagram-media { margin: 0 !important; }
 .minfin-social-feed__ig-embed .instagram-media { width: 100% !important; max-width: 540px !important; min-width: 0 !important; box-sizing: border-box; }
-.minfin-social-feed__external-link { display: block; margin: 8px 12px 12px; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 7px; color: #1d4ed8; background: #f8fafc; font: 600 12px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: center; text-decoration: none; }
+.minfin-social-feed__external-link { display: block; align-self: center; margin: 8px 12px 12px; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 7px; color: #1d4ed8; background: #f8fafc; font: 600 12px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: center; text-decoration: none; }
 .minfin-social-feed__external-link:hover { background: #eff6ff; text-decoration: underline; }
 .minfin-social-feed-error { padding: 12px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 8px; font-size: 13px; }
 .minfin-social-feed--empty { padding: 24px; text-align: center; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; color: #64748b; }
 
 @media (max-width: 640px) {
     .minfin-social-feed { grid-template-columns: 1fr; gap: 12px; }
+    .minfin-social-feed--grid { grid-template-columns: 1fr; }
     .minfin-social-feed--list, .minfin-social-feed--single { max-width: 100%; }
+}
+
+@media (min-width: 641px) and (max-width: 960px) {
+    .minfin-social-feed--grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .minfin-floating { position: fixed; bottom: 24px; z-index: 99998; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; align-items: flex-end; gap: 14px; }
