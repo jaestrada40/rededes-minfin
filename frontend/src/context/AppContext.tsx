@@ -47,6 +47,7 @@ interface AppContextType {
 
   // Data
   feeds: Feed[];
+  feedsLoading: boolean;
   posts: SocialPost[];
   portals: WordPressPortal[];
   auditLogs: AuditLogEntry[];
@@ -252,6 +253,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const [feeds, setFeeds] = useState<Feed[]>([]);
+  const [feedsLoading, setFeedsLoading] = useState(false);
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [portals, setPortals] = useState<WordPressPortal[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -321,9 +323,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const loadFeeds = useCallback(async () => {
-    const backendFeeds = await feedsApi.listFeeds();
-    setFeeds(backendFeeds.map(toFeed));
-    setPosts(collectPosts(backendFeeds));
+    setFeedsLoading(true);
+    try {
+      const backendFeeds = await feedsApi.listFeeds();
+      setFeeds(backendFeeds.map(toFeed));
+      setPosts(collectPosts(backendFeeds));
+    } finally {
+      setFeedsLoading(false);
+    }
   }, []);
 
   const loadPortals = useCallback(async () => {
@@ -717,6 +724,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         openFeedDetail,
         openFeedPreview,
         feeds,
+        feedsLoading,
         posts,
         portals,
         auditLogs,

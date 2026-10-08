@@ -15,7 +15,8 @@ import {
   Trash2, 
   SlidersHorizontal,
   ArrowUpDown,
-  ExternalLink
+  ExternalLink,
+  Loader2
 } from 'lucide-react';
 import { SocialNetworkType, FeedStatus } from '../types';
 
@@ -27,6 +28,7 @@ interface FeedsViewProps {
 export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenAssignModal }) => {
   const {
     feeds,
+    feedsLoading,
     posts,
     portals,
     settings,
@@ -185,7 +187,16 @@ export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenA
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredFeeds.length === 0 ? (
+              {feedsLoading ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-500">
+                    <div className="inline-flex items-center gap-2 font-semibold text-[#003876]">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Cargando feeds y publicaciones...
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredFeeds.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-slate-500">
                     No se encontraron feeds con los filtros seleccionados.
