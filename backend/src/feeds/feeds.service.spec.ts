@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { FeedsService } from './feeds.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -112,6 +113,107 @@ describe('FeedsService', () => {
     );
     expect(result.success).toBe(true);
     expect(prismaMock.socialPost.create).toHaveBeenCalled();
+  });
+
+  describe('post URL safety', () => {
+    const mixedFeed = {
+      ...feedRow,
+      network: 'mixed',
+      posts: [],
+      portals: [],
+    };
+
+    beforeEach(() => {
+      prismaMock.feed.findUniqueOrThrow.mockResolvedValueOnce(mixedFeed);
+      prismaMock.socialPost.create.mockClear();
+    });
+
+    it.each([
+      ['tiktok', 'javascript:alert(1)'],
+      ['tiktok', 'data:text/html;base64,PHNjcmlwdD4='],
+      ['tiktok', 'ftp://example.com/video'],
+      ['linkedin', 'javascript:alert(1)'],
+    ])('rejects a %s post whose URL is %s', async (network, urlOrId) => {
+      await expect(
+        service.addPost('f1', { urlOrId, network }, actor),
+      ).rejects.toThrow(BadRequestException);
+      expect(prismaMock.socialPost.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a LinkedIn post that points outside linkedin.com', async () => {
+      await expect(
+        service.addPost(
+          'f1',
+          { urlOrId: 'https://evil.example.com/phish', network: 'linkedin' },
+          actor,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prismaMock.socialPost.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts a LinkedIn URN and builds the linkedin.com embed URL', async () => {
+      const result = await service.addPost(
+        'f1',
+        { urlOrId: 'urn:li:share:7000000000000000001', network: 'linkedin' },
+        actor,
+      );
+      expect(result.success).toBe(true);
+      expect(prismaMock.socialPost.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            url: expect.stringMatching(/^https:\/\/www\.linkedin\.com\/embed\//),
+          }),
+        }),
+      );
+    });
+
+    it('upgrades a pasted http:// URL to https instead of rejecting it', async () => {
+      const result = await service.addPost(
+        'f1',
+        {
+          urlOrId: 'http://www.tiktok.com/@minfin/video/123',
+          network: 'tiktok',
+          customContent: 'texto propio',
+        },
+        actor,
+      );
+      expect(result.success).toBe(true);
+      expect(prismaMock.socialPost.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            url: 'https://www.tiktok.com/@minfin/video/123',
+          }),
+        }),
+      );
+    });
+
+    it('keeps accepting a bare Facebook post ID (not a navigable URL)', async () => {
+      const result = await service.addPost(
+        'f1',
+        { urlOrId: '1234567890123456', network: 'facebook' },
+        actor,
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('drops non-https thumbnails returned by third parties', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            title: 't',
+            author_name: 'a',
+            thumbnail_url: 'javascript:alert(1)',
+          }),
+      }) as unknown as typeof fetch;
+      await service.addPost(
+        'f1',
+        { urlOrId: 'https://youtu.be/dQw4w9WgXcQ', network: 'youtube' },
+        actor,
+      );
+      const data = prismaMock.socialPost.create.mock.calls[0][0].data;
+      expect(data.mediaThumb).toBeUndefined();
+    });
   });
 
   it('reorders posts by writing the order column for each FeedPost row', async () => {
