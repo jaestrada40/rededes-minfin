@@ -7,9 +7,12 @@ OpenShift pueda descargar de un registro privado. Si el namespace no lo tiene
 ya (p. ej. reutilizado de otro proyecto), crearlo con:
 
 ```bash
+# Use una cuenta de SOLO DESCARGA del registro. Exporte la contraseña en su
+# sesión; no la escriba en este archivo ni en el historial de git.
+read -rs REGISTRY_PULL_PASSWORD && export REGISTRY_PULL_PASSWORD
 oc create secret docker-registry srv-osnexus01.minfin.gob.gt \
   --docker-server=srv-osnexus01.minfin.gob.gt:8006 \
-  --docker-username=desadti --docker-password='Desadti..'
+  --docker-username='<REGISTRY_PULL_USER>' --docker-password="$REGISTRY_PULL_PASSWORD"
 ```
 
 ## 2. Build y push de imágenes a OSNexus

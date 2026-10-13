@@ -83,8 +83,8 @@ export function updateFeed(id: string, input: Partial<Parameters<typeof createFe
   return apiPatch<BackendFeed>(`/feeds/${id}`, input);
 }
 
-export function deleteFeed(id: string): Promise<void> {
-  return apiDelete<void>(`/feeds/${id}`);
+export function deleteFeed(id: string, mfaCode?: string): Promise<void> {
+  return apiDelete<void>(`/feeds/${id}`, { mfaCode });
 }
 
 export function duplicateFeed(id: string): Promise<BackendFeed> {

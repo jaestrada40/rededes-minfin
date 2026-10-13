@@ -97,6 +97,19 @@ export class AuthService {
     }
   }
 
+  // Reserva atómica de un intento de adivinación de TOTP. Hace falta además de
+  // assertNotLocked porque esa lectura la pasan a la vez todas las peticiones de
+  // una ráfaga; la reserva incrementa el contador en la base de datos antes de
+  // evaluar el código, así que solo el presupuesto permitido llega a evaluarse.
+  private async reserveMfaAttempt(key: string): Promise<void> {
+    if (!(await this.attempts.reserveAttempt(key))) {
+      throw new HttpException(
+        'Demasiados intentos fallidos. Vuelva a intentar en 5 minuto(s).',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
   private signInternal(payload: Record<string, unknown>): string {
     return this.jwt.sign(payload, {
       secret: process.env.JWT_ACCESS_SECRET,
@@ -184,6 +197,8 @@ export class AuthService {
     // Un secreto todavía pendiente de verificar no sirve como segundo factor.
     if (!settings?.verifiedAt) return 'invalid';
 
+    // El intento se reserva (y cuenta como fallo) antes de evaluar el código.
+    await this.reserveMfaAttempt(attemptKey);
     const validation = await this.consumeTotpCode(
       userId,
       settings.secretEncrypted,
@@ -191,8 +206,9 @@ export class AuthService {
     );
     if (validation === 'valid') {
       await this.attempts.reset(attemptKey);
-    } else if (validation === 'invalid') {
-      await this.attempts.recordFailure(attemptKey);
+    } else if (validation === 'replayed') {
+      // Código correcto ya usado en este intervalo: no es una adivinanza.
+      await this.attempts.releaseAttempt(attemptKey);
     }
     return validation;
   }
@@ -400,20 +416,28 @@ export class AuthService {
     // que contar por token no limitaría nada.
     const attemptKey = `mfa:${payload.userId}`;
     await this.assertNotLocked(attemptKey);
+    // Reserva atómica del intento antes de evaluar: una ráfaga concurrente no
+    // puede pasar el chequeo de bloqueo más de MAX_FAILURES veces.
+    await this.reserveMfaAttempt(attemptKey);
 
     const settings = await this.prisma.mfaSettings.findUnique({
       where: { userId: payload.userId },
     });
-    const validCode = settings?.verifiedAt
+    // consumeTotpCode devuelve 'valid' | 'invalid' | 'replayed' (cadenas, todas
+    // verdaderas): hay que comparar con 'valid' explícitamente. Un `if (!x)`
+    // aquí aceptaba cualquier código como correcto.
+    const validation: MfaCodeValidation = settings?.verifiedAt
       ? await this.consumeTotpCode(
           payload.userId,
           settings.secretEncrypted,
           code,
         )
-      : false;
+      : 'invalid';
 
-    if (!validCode) {
-      const locked = await this.attempts.recordFailure(attemptKey);
+    if (validation !== 'valid') {
+      // El fallo ya quedó contado por la reserva; solo se consulta el estado.
+      const locked =
+        (await this.attempts.retryAfterSeconds(attemptKey)) !== null;
       await this.audit.log({
         userId: payload.userId,
         userEmail: 'desconocido',

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -77,6 +78,57 @@ function extractPostIdAndDetails(
   }
 
   return { postId, url };
+}
+
+// Las URL guardadas se publican en portales públicos (iframe/href/img). Un
+// valor con esquema distinto de https (javascript:, data:, http:, ftp:...) no
+// debe llegar a la base de datos. Un valor sin esquema (p. ej. un ID de
+// Facebook) se conserva: no es una URL navegable.
+function hasScheme(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(value);
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+// Las redes sociales sirven todo por https: una URL pegada con http:// se
+// sube a https en vez de rechazarse. Cualquier otro esquema se rechaza abajo.
+function upgradeHttp(url: string): string {
+  return /^http:\/\//i.test(url) ? url.replace(/^http:/i, 'https:') : url;
+}
+
+function assertSafePostUrl(network: string, url: string): void {
+  if (hasScheme(url) && !isHttpsUrl(url)) {
+    throw new BadRequestException(
+      'La URL de la publicación debe usar https y ser una dirección válida.',
+    );
+  }
+  if (network === 'linkedin') {
+    // El plugin muestra esta URL dentro de un iframe: solo se admite el
+    // dominio de LinkedIn (la forma /embed/ se genera al reconocer el URN).
+    let host = '';
+    try {
+      host = new URL(url).hostname.toLowerCase();
+    } catch {
+      host = '';
+    }
+    if (host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) {
+      throw new BadRequestException(
+        'Para LinkedIn pegue la URL de la publicación (https://www.linkedin.com/...) o su URN.',
+      );
+    }
+  }
+}
+
+// Valores de terceros (oEmbed, tarjetas de X, página del canal) se guardan
+// solo si son https; si no, se descartan en lugar de publicarse.
+function httpsOrUndefined(value?: string | null): string | undefined {
+  return value && isHttpsUrl(value) ? value : undefined;
 }
 
 const OEMBED_ENDPOINTS: Record<string, (url: string) => string> = {
@@ -490,9 +542,37 @@ export class FeedsService {
     dto: UpdateFeedDto,
     actor: { id: string; email: string; role: string },
   ): Promise<Feed> {
+    // mfaCode viaja en el DTO (hereda de CreateFeedDto) pero no es una columna:
+    // se separa para que no llegue a Prisma.
+    const { mfaCode, ...data } = dto;
+
+    // Cambiar el estado (activo/pausado/borrador) o el slug modifica lo que se
+    // publica en los portales institucionales (un slug nuevo rompe todos los
+    // embeds del anterior), por lo que exige re-confirmar con el código TOTP.
+    // Editar nombre, descripción, layout, etc. no lo exige, y reenviar el mismo
+    // valor tampoco cuenta como cambio.
+    const current = await this.prisma.feed
+      .findUniqueOrThrow({ where: { id } })
+      .catch(() => {
+        throw new NotFoundException('Feed no encontrado');
+      });
+    const changesPublication =
+      (data.status !== undefined && data.status !== current.status) ||
+      (data.slug !== undefined && data.slug !== current.slug);
+    if (changesPublication) {
+      await this.requireStepUpMfa(
+        actor,
+        mfaCode,
+        'Intento fallido de cambio de estado o slug de feed (código MFA inválido)',
+        'Feeds',
+        'Feed',
+        id,
+      );
+    }
+
     const feed = await this.prisma.feed.update({
       where: { id },
-      data: { ...dto, updatedBy: actor.email },
+      data: { ...data, updatedBy: actor.email },
     });
 
     await this.audit.log({
@@ -512,12 +592,24 @@ export class FeedsService {
   async remove(
     id: string,
     actor: { id: string; email: string; role: string },
+    mfaCode?: string,
   ): Promise<void> {
     const feed = await this.prisma.feed
       .findUniqueOrThrow({ where: { id } })
       .catch(() => {
         throw new NotFoundException('Feed no encontrado');
       });
+
+    // Borrar un feed es definitivo y arrastra el orden de sus posts y sus
+    // asignaciones a portales: se exige re-confirmar con el código TOTP.
+    await this.requireStepUpMfa(
+      actor,
+      mfaCode,
+      'Intento fallido de eliminación de feed (código MFA inválido)',
+      'Feeds',
+      'Feed',
+      id,
+    );
 
     await this.prisma.feed.delete({ where: { id } });
 
@@ -604,10 +696,9 @@ export class FeedsService {
       };
     }
 
-    const { postId, url } = extractPostIdAndDetails(
-      input.urlOrId,
-      input.network,
-    );
+    const extracted = extractPostIdAndDetails(input.urlOrId, input.network);
+    const postId = extracted.postId;
+    const url = upgradeHttp(extracted.url);
 
     if (!postId) {
       return {
@@ -615,6 +706,8 @@ export class FeedsService {
         message: 'No se pudo identificar un ID o URL válida.',
       };
     }
+
+    assertSafePostUrl(input.network, url);
 
     let post = await this.prisma.socialPost.findUnique({
       where: { network_postId: { network: input.network, postId } },
@@ -637,7 +730,8 @@ export class FeedsService {
             ? await fetchTwitterCard(postId)
             : await fetchOEmbed(input.network, url);
 
-      const mediaThumbOrUrl = input.customMediaUrl || oembed?.thumbnailUrl;
+      const mediaThumbOrUrl =
+        input.customMediaUrl || httpsOrUndefined(oembed?.thumbnailUrl);
 
       post = await this.prisma.socialPost.create({
         data: {
@@ -650,7 +744,8 @@ export class FeedsService {
             oembed?.authorName ||
             account?.name ||
             'Ministerio de Finanzas Públicas',
-          authorAvatarUrl: account?.avatarUrl || oembed?.authorAvatarUrl,
+          authorAvatarUrl:
+            account?.avatarUrl || httpsOrUndefined(oembed?.authorAvatarUrl),
           publishedAt: oembed?.publishedAt || formatPublishedAt(new Date()),
           content:
             input.customContent ||

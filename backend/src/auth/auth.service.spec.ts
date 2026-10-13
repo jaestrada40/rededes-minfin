@@ -41,7 +41,7 @@ describe('AuthService', () => {
         expiresAt: new Date(Date.now() + 60_000),
         failures,
       });
-      return Promise.resolve([{ lockedUntil }]);
+      return Promise.resolve([{ lockedUntil, failures }]);
     }),
     mfaSettings: {
       create: jest.fn().mockResolvedValue({}),
@@ -74,6 +74,12 @@ describe('AuthService', () => {
       deleteMany: jest.fn(({ where }: any) => {
         attemptStore.delete(where.key);
         return Promise.resolve({});
+      }),
+      updateMany: jest.fn(({ where }: any) => {
+        const key = where.key as string;
+        const failures = Math.max((rawAttemptStore.get(key) ?? 0) - 1, 0);
+        rawAttemptStore.set(key, failures);
+        return Promise.resolve({ count: 1 });
       }),
     },
   };
@@ -224,6 +230,106 @@ describe('AuthService', () => {
 
     expect(await service.verifyMfaCode('u-stepup', code)).toBe('valid');
     expect(await service.verifyMfaCode('u-stepup', code)).toBe('replayed');
+  });
+
+  it('does not count a replayed (correct but already used) code toward the step-up lockout', async () => {
+    const secret = authenticator.generateSecret();
+    prismaMock.mfaSettings.findUnique = jest.fn().mockResolvedValue({
+      secretEncrypted: (service as any).encryptSecret(secret),
+      verifiedAt: new Date(),
+    });
+    prismaMock.mfaSettings.updateMany = jest
+      .fn()
+      .mockResolvedValue({ count: 0 });
+    const code = authenticator.generate(secret);
+
+    for (let i = 0; i < 12; i++) {
+      expect(await service.verifyMfaCode('u-replay', code)).toBe('replayed');
+    }
+  });
+
+  describe('login second factor (mfaVerify)', () => {
+    const challenge = () =>
+      (service as any).signInternal({
+        purpose: 'mfa-challenge',
+        userId: 'u-login',
+      });
+
+    const withEnrolledSecret = () => {
+      const secret = authenticator.generateSecret();
+      prismaMock.mfaSettings.findUnique = jest.fn().mockResolvedValue({
+        secretEncrypted: (service as any).encryptSecret(secret),
+        verifiedAt: new Date(),
+      });
+      prismaMock.user.findUniqueOrThrow = jest
+        .fn()
+        .mockResolvedValue({ ...userNoMfa, id: 'u-login', mfaEnabled: true });
+      return secret;
+    };
+
+    it('rejects a wrong TOTP code and issues no tokens', async () => {
+      withEnrolledSecret();
+      prismaMock.refreshToken.create.mockClear();
+
+      await expect(
+        service.mfaVerify(challenge(), '000000'),
+      ).rejects.toMatchObject({ status: 401 });
+      expect(prismaMock.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a replayed TOTP code', async () => {
+      const secret = withEnrolledSecret();
+      prismaMock.mfaSettings.updateMany = jest
+        .fn()
+        .mockResolvedValue({ count: 0 });
+      prismaMock.refreshToken.create.mockClear();
+
+      await expect(
+        service.mfaVerify(challenge(), authenticator.generate(secret)),
+      ).rejects.toMatchObject({ status: 401 });
+      expect(prismaMock.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the MFA enrollment was never verified', async () => {
+      prismaMock.mfaSettings.findUnique = jest
+        .fn()
+        .mockResolvedValue({ secretEncrypted: 'x', verifiedAt: null });
+
+      await expect(
+        service.mfaVerify(challenge(), '123456'),
+      ).rejects.toMatchObject({ status: 401 });
+    });
+
+    it('evaluates at most 5 guesses from a concurrent burst', async () => {
+      withEnrolledSecret();
+      const findUnique = prismaMock.mfaSettings.findUnique as jest.Mock;
+      findUnique.mockClear();
+      const token = challenge();
+
+      const results = await Promise.allSettled(
+        Array.from({ length: 30 }, (_, i) =>
+          service.mfaVerify(token, String(100000 + i)),
+        ),
+      );
+
+      // findUnique solo se alcanza tras reservar el intento: es el contador de
+      // códigos realmente evaluados.
+      expect(findUnique.mock.calls.length).toBeLessThanOrEqual(5);
+      expect(results.every((r) => r.status === 'rejected')).toBe(true);
+    });
+
+    it('issues tokens for a correct, unused TOTP code', async () => {
+      const secret = withEnrolledSecret();
+      prismaMock.mfaSettings.updateMany = jest
+        .fn()
+        .mockResolvedValue({ count: 1 });
+
+      const tokens = await service.mfaVerify(
+        challenge(),
+        authenticator.generate(secret),
+      );
+      expect(tokens.accessToken).toEqual(expect.any(String));
+    });
   });
 
   it('sets an absolute 30-minute limit for both access and refresh tokens', async () => {

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MINFIN Social Feed
  * Description: Muestra feeds de redes sociales institucionales del MINFIN administrados desde el Gestor Centralizado de Redes Sociales, vía shortcode.
- * Version: 1.5.9
+ * Version: 1.5.10
  * Author: DTI - Ministerio de Finanzas Públicas
  * Text Domain: minfin-social-feed
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MINFIN_SOCIAL_FEED_VERSION', '1.5.9');
+define('MINFIN_SOCIAL_FEED_VERSION', '1.5.10');
 define('MINFIN_SOCIAL_FEED_OPTION', 'minfin_social_feed_settings');
 
 class Minfin_Social_Feed {
@@ -845,8 +845,28 @@ class Minfin_Social_Feed {
     // credenciales para cualquier publicación pública. El backend ya entrega
     // post['url'] normalizado como la URL de embed
     // (https://www.linkedin.com/embed/feed/update/urn:li:...).
+    //
+    // Defensa en profundidad: el plugin no confía en que el backend haya
+    // normalizado la URL. Solo se enmarca una URL https del dominio de
+    // LinkedIn; cualquier otra se omite para no incrustar páginas de terceros
+    // dentro del portal.
+    private function is_linkedin_embed_url($url) {
+        $parts = wp_parse_url((string) $url);
+        if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https' || empty($parts['host'])) {
+            return false;
+        }
+        if (isset($parts['user']) || isset($parts['pass'])) {
+            return false;
+        }
+        $host = strtolower($parts['host']);
+        return $host === 'linkedin.com' || substr($host, -13) === '.linkedin.com';
+    }
+
     private function render_card_linkedin($post) {
         $url = $post['url'] ?? '';
+        if (!$this->is_linkedin_embed_url($url)) {
+            return '';
+        }
         ob_start();
         ?>
         <div class="minfin-social-feed__li-embed">

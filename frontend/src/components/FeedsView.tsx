@@ -37,6 +37,8 @@ export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenA
     openFeedDetail,
     openFeedPreview,
     requestConfirm,
+    requestMfaConfirm,
+    showNotification,
     user
   } = useApp();
 
@@ -346,7 +348,19 @@ export const FeedsView: React.FC<FeedsViewProps> = ({ onOpenCreateModal, onOpenA
                                     `¿Confirma que desea eliminar el feed "${feed.name}"? Los portales dejarán de mostrar este contenido.`,
                                     { title: 'Eliminar feed', confirmLabel: 'Eliminar', danger: true }
                                   );
-                                  if (ok) deleteFeed(feed.id);
+                                  if (!ok) return;
+                                  // Borrar un feed es definitivo: el backend exige
+                                  // re-confirmar con el código MFA actual.
+                                  const mfaCode = await requestMfaConfirm(
+                                    `Ingrese su código MFA actual para confirmar la eliminación del feed "${feed.name}".`,
+                                    { title: 'Confirmación MFA requerida', confirmLabel: 'Eliminar feed' }
+                                  );
+                                  if (mfaCode === null) return;
+                                  try {
+                                    await deleteFeed(feed.id, mfaCode || undefined);
+                                  } catch (err) {
+                                    showNotification(err instanceof Error ? err.message : 'No se pudo eliminar el feed.', 'error');
+                                  }
                                 }}
                                 className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded border border-slate-200 cursor-pointer"
                                 title="Eliminar feed"
