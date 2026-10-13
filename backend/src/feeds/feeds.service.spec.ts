@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { FeedsService } from './feeds.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -60,6 +60,7 @@ describe('FeedsService', () => {
   const actor = { id: 'u1', email: 'a@minfin.gob.gt', role: 'admin' };
 
   beforeEach(() => {
+    prismaMock.feedPost.update.mockClear();
     global.fetch = jest
       .fn()
       .mockRejectedValue(new Error('network disabled in unit tests'));
@@ -113,6 +114,99 @@ describe('FeedsService', () => {
     );
     expect(result.success).toBe(true);
     expect(prismaMock.socialPost.create).toHaveBeenCalled();
+  });
+
+  describe('step-up MFA on feed publication changes', () => {
+    const withMfa = () => {
+      prismaMock.user.findUnique.mockResolvedValue({ mfaEnabled: true });
+    };
+    afterEach(() => {
+      prismaMock.user.findUnique.mockResolvedValue({ mfaEnabled: false });
+      authMock.verifyMfaCode.mockResolvedValue('valid');
+      prismaMock.feed.update.mockClear();
+      prismaMock.feed.delete.mockClear();
+      authMock.verifyMfaCode.mockClear();
+    });
+
+    it('requires a valid code to change the status', async () => {
+      withMfa();
+      authMock.verifyMfaCode.mockResolvedValue('invalid');
+      await expect(
+        service.update('f1', { status: 'paused' }, actor),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(prismaMock.feed.update).not.toHaveBeenCalled();
+    });
+
+    it('requires a valid code to change the slug', async () => {
+      withMfa();
+      authMock.verifyMfaCode.mockResolvedValue('invalid');
+      await expect(
+        service.update('f1', { slug: 'otro-slug' }, actor),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(prismaMock.feed.update).not.toHaveBeenCalled();
+    });
+
+    it('applies the change and never sends mfaCode to the database when the code is valid', async () => {
+      withMfa();
+      await service.update(
+        'f1',
+        { status: 'paused', mfaCode: '123456' },
+        actor,
+      );
+      expect(authMock.verifyMfaCode).toHaveBeenCalledWith('u1', '123456');
+      const data = prismaMock.feed.update.mock.calls[0][0].data;
+      expect(data.status).toBe('paused');
+      expect(data).not.toHaveProperty('mfaCode');
+    });
+
+    it('does not ask for a code to edit name, description or layout', async () => {
+      withMfa();
+      await service.update(
+        'f1',
+        { name: 'Nuevo nombre', layoutDefault: 'list' },
+        actor,
+      );
+      expect(authMock.verifyMfaCode).not.toHaveBeenCalled();
+      expect(prismaMock.feed.update).toHaveBeenCalled();
+    });
+
+    it('does not ask for a code when the status or slug is re-sent unchanged', async () => {
+      withMfa();
+      await service.update(
+        'f1',
+        { status: 'active', slug: 'x-comunicados', name: 'Igual' },
+        actor,
+      );
+      expect(authMock.verifyMfaCode).not.toHaveBeenCalled();
+    });
+
+    it('does not ask for a code when the user has no MFA configured', async () => {
+      await service.update('f1', { status: 'paused' }, actor);
+      expect(authMock.verifyMfaCode).not.toHaveBeenCalled();
+      expect(prismaMock.feed.update).toHaveBeenCalled();
+    });
+
+    it('requires a valid code to delete a feed', async () => {
+      withMfa();
+      authMock.verifyMfaCode.mockResolvedValue('invalid');
+      await expect(service.remove('f1', actor)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(prismaMock.feed.delete).not.toHaveBeenCalled();
+    });
+
+    it('deletes the feed with a valid code', async () => {
+      withMfa();
+      await service.remove('f1', actor, '123456');
+      expect(prismaMock.feed.delete).toHaveBeenCalled();
+    });
+
+    it('keeps duplicate and reorder free of step-up', async () => {
+      withMfa();
+      await service.duplicate('f1', actor);
+      await service.reorderPosts('f1', ['p2', 'p1'], actor);
+      expect(authMock.verifyMfaCode).not.toHaveBeenCalled();
+    });
   });
 
   describe('post URL safety', () => {

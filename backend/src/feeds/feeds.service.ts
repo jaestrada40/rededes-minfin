@@ -542,9 +542,37 @@ export class FeedsService {
     dto: UpdateFeedDto,
     actor: { id: string; email: string; role: string },
   ): Promise<Feed> {
+    // mfaCode viaja en el DTO (hereda de CreateFeedDto) pero no es una columna:
+    // se separa para que no llegue a Prisma.
+    const { mfaCode, ...data } = dto;
+
+    // Cambiar el estado (activo/pausado/borrador) o el slug modifica lo que se
+    // publica en los portales institucionales (un slug nuevo rompe todos los
+    // embeds del anterior), por lo que exige re-confirmar con el código TOTP.
+    // Editar nombre, descripción, layout, etc. no lo exige, y reenviar el mismo
+    // valor tampoco cuenta como cambio.
+    const current = await this.prisma.feed
+      .findUniqueOrThrow({ where: { id } })
+      .catch(() => {
+        throw new NotFoundException('Feed no encontrado');
+      });
+    const changesPublication =
+      (data.status !== undefined && data.status !== current.status) ||
+      (data.slug !== undefined && data.slug !== current.slug);
+    if (changesPublication) {
+      await this.requireStepUpMfa(
+        actor,
+        mfaCode,
+        'Intento fallido de cambio de estado o slug de feed (código MFA inválido)',
+        'Feeds',
+        'Feed',
+        id,
+      );
+    }
+
     const feed = await this.prisma.feed.update({
       where: { id },
-      data: { ...dto, updatedBy: actor.email },
+      data: { ...data, updatedBy: actor.email },
     });
 
     await this.audit.log({
@@ -564,12 +592,24 @@ export class FeedsService {
   async remove(
     id: string,
     actor: { id: string; email: string; role: string },
+    mfaCode?: string,
   ): Promise<void> {
     const feed = await this.prisma.feed
       .findUniqueOrThrow({ where: { id } })
       .catch(() => {
         throw new NotFoundException('Feed no encontrado');
       });
+
+    // Borrar un feed es definitivo y arrastra el orden de sus posts y sus
+    // asignaciones a portales: se exige re-confirmar con el código TOTP.
+    await this.requireStepUpMfa(
+      actor,
+      mfaCode,
+      'Intento fallido de eliminación de feed (código MFA inválido)',
+      'Feeds',
+      'Feed',
+      id,
+    );
 
     await this.prisma.feed.delete({ where: { id } });
 

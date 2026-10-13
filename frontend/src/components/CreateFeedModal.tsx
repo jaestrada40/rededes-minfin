@@ -89,6 +89,12 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
 
   const [submitting, setSubmitting] = useState(false);
 
+  // Crear un feed, y editar su estado o su slug, cambian lo que se publica en
+  // los portales: el backend exige re-confirmar con el código MFA actual.
+  // Editar nombre, descripción, layout, etc. no lo requiere.
+  const publicationChanged = !!editFeed && (status !== editFeed.status || slug.trim() !== editFeed.slug);
+  const needsMfa = !!user.mfaEnabled && (!editFeed || publicationChanged);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
@@ -105,9 +111,10 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
       return;
     }
 
-    if (!editFeed && user.mfaEnabled && !mfaCode.trim()) {
-      setFormError('Ingrese el código MFA actual de 6 dígitos para crear el feed.');
-      showNotification('Ingrese su código MFA actual para confirmar la creación del feed.', 'error');
+    if (needsMfa && !mfaCode.trim()) {
+      const action = editFeed ? 'guardar el cambio de estado o de identificador (slug)' : 'crear el feed';
+      setFormError(`Ingrese el código MFA actual de 6 dígitos para ${action}.`);
+      showNotification(`Ingrese su código MFA actual para confirmar: ${action}.`, 'error');
       return;
     }
 
@@ -135,7 +142,9 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
           layoutDefault,
           maxItemsDefault,
           showMetrics,
-          showMedia
+          showMedia,
+          // Solo viaja cuando el cambio lo exige; el backend lo ignora si no.
+          mfaCode: publicationChanged ? mfaCode.trim() || undefined : undefined
         });
       } else {
         await createFeed({
@@ -323,7 +332,7 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
             </div>
           </div>
 
-          {!editFeed && user.mfaEnabled && (
+          {needsMfa && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-1.5 font-bold text-amber-800">
@@ -342,7 +351,11 @@ export const CreateFeedModal: React.FC<CreateFeedModalProps> = ({ isOpen, onClos
                 placeholder="Código de 6 dígitos de su app de autenticación"
                 className="w-full bg-white border border-amber-300 rounded-lg p-2.5 text-slate-800 font-mono tracking-widest focus:outline-none focus:border-amber-500"
               />
-              <p className="text-amber-700">Crear un feed distribuye contenido en los portales institucionales; confirme su identidad con un código nuevo de su app de autenticación. Cada código se acepta una sola vez.</p>
+              <p className="text-amber-700">
+                {editFeed
+                  ? 'Cambiar el estado o el identificador (slug) de un feed modifica lo que se publica en los portales institucionales; confirme su identidad con un código nuevo de su app de autenticación. Cada código se acepta una sola vez.'
+                  : 'Crear un feed distribuye contenido en los portales institucionales; confirme su identidad con un código nuevo de su app de autenticación. Cada código se acepta una sola vez.'}
+              </p>
             </div>
           )}
 

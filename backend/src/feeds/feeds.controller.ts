@@ -60,8 +60,12 @@ export class FeedsController {
 
   @Roles('super_admin', 'admin', 'editor')
   @Delete('feeds/:id')
-  remove(@Param('id') id: string, @Req() req: AuthedRequest) {
-    return this.feeds.remove(id, req.user);
+  remove(
+    @Param('id') id: string,
+    @Body() dto: MfaCodeDto,
+    @Req() req: AuthedRequest,
+  ) {
+    return this.feeds.remove(id, req.user, dto.mfaCode);
   }
 
   @Roles('super_admin', 'admin', 'editor')

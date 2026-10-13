@@ -65,8 +65,8 @@ interface AppContextType {
 
   // Feed Actions
   createFeed: (feedData: Partial<Feed>, mfaCode?: string) => Promise<void>;
-  updateFeed: (id: string, feedData: Partial<Feed>) => Promise<void>;
-  deleteFeed: (id: string) => Promise<void>;
+  updateFeed: (id: string, feedData: Partial<Feed> & { mfaCode?: string }) => Promise<void>;
+  deleteFeed: (id: string, mfaCode?: string) => Promise<void>;
   duplicateFeed: (id: string) => Promise<void>;
 
   // Post Actions
@@ -546,7 +546,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showNotification(`Feed "${created.name}" creado con éxito. Shortcode: [${settings.shortcodeTag} feed="${created.slug}"]`, 'success');
   };
 
-  const updateFeed = async (id: string, feedData: Partial<Feed>) => {
+  const updateFeed = async (id: string, feedData: Partial<Feed> & { mfaCode?: string }) => {
+    // mfaCode solo es necesario si el cambio altera el estado o el slug del
+    // feed (el backend lo ignora en cualquier otro caso).
     const { assignedPortalIds, postIds, ...rest } = feedData;
     await feedsApi.updateFeed(id, rest);
     if (assignedPortalIds) {
@@ -556,9 +558,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showNotification('Configuración de feed guardada y sincronizada.', 'success');
   };
 
-  const deleteFeed = async (id: string) => {
+  const deleteFeed = async (id: string, mfaCode?: string) => {
     const feed = feeds.find(f => f.id === id);
-    await feedsApi.deleteFeed(id);
+    await feedsApi.deleteFeed(id, mfaCode);
     await loadFeeds();
     showNotification(`Feed "${feed?.name || ''}" eliminado del sistema.`, 'warning');
   };
