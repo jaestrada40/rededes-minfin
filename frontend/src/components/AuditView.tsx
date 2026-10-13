@@ -21,6 +21,7 @@ import {
   Sliders
 } from 'lucide-react';
 import { AuditLogEntry, UserRole } from '../types';
+import { toCsv } from '../csv';
 
 export const AuditView: React.FC = () => {
   const { auditLogs, user, showNotification } = useApp();
@@ -51,29 +52,34 @@ export const AuditView: React.FC = () => {
 
   const exportToCSV = () => {
     const headers = ['ID', 'Fecha_Hora', 'Usuario', 'Correo', 'Rol', 'Accion', 'Modulo', 'Feed_Afectado', 'Portal_Afectado', 'IP', 'Resultado', 'Detalles'];
+    // csvCell duplica comillas y neutraliza celdas que empiezan con = + - @
+    // (el correo de un login fallido es texto sin autenticar).
     const rows = filteredLogs.map(l => [
       l.id,
-      `"${l.timestamp}"`,
-      `"${l.userName}"`,
-      `"${l.userEmail}"`,
-      `"${l.userRole}"`,
-      `"${l.action}"`,
-      `"${l.module}"`,
-      `"${l.feedAffected || ''}"`,
-      `"${l.portalAffected || ''}"`,
-      `"${l.ipAddress}"`,
-      `"${l.result}"`,
-      `"${(l.details || '').replace(/"/g, '""')}"`
+      l.timestamp,
+      l.userName,
+      l.userEmail,
+      l.userRole,
+      l.action,
+      l.module,
+      l.feedAffected || '',
+      l.portalAffected || '',
+      l.ipAddress,
+      l.result,
+      l.details || ''
     ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    // BOM para que Excel lea UTF-8; Blob en lugar de data: URI (encodeURI no
+    // escapa '#', que truncaba el archivo).
+    const blob = new Blob(['﻿' + toCsv(headers, rows)], { type: 'text/csv;charset=utf-8' });
+    const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
+    link.setAttribute('href', objectUrl);
     link.setAttribute('download', `minfin_auditoria_redes_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(objectUrl);
 
     showNotification('Reporte de auditoría exportado a archivo CSV.', 'success');
   };
